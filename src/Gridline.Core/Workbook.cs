@@ -127,7 +127,7 @@ public sealed class Workbook
         }
 
         // Pure; nothing is mutated yet. A formula keeps the cell's old value until recalc writes the new one, which is
-        // what RecalcResult.ChangedCells compares against (Task 11 contract).
+        // what RecalcResult.ChangedCells compares against (RecalcResult contract).
         var entry = input.Length == 0 ? null : CreateEntry(input, old?.Value ?? CellValue.Blank);
         bool edgesChanged = old?.Formula is not null || entry?.Formula is not null;
 

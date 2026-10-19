@@ -1,3 +1,3 @@
 using Gridline.Cli;
 
-return CliApp.Run(args, Console.In, Console.OpenStandardOutput(), Console.OpenStandardError());
+return CliApp.Run(args, CliApp.OpenStdin(Console.OpenStandardInput()), Console.OpenStandardOutput(), Console.OpenStandardError());

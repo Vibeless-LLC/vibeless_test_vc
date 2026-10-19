@@ -11,6 +11,7 @@ public static class FileCommands
         // args[0] is "eval"
         if (args.Length < 2) throw Usage("eval requires <file> and at least one <addr> or --all");
         string file = args[1];
+        if (file.Length == 0) throw Usage("file argument must not be empty");
         bool all = false;
         var addresses = new List<string>();
         for (int i = 2; i < args.Length; i++)
@@ -36,6 +37,7 @@ public static class FileCommands
         // args[0] is "set"; form: set <file> <addr> <input> [--out <path>]. The input is taken verbatim by position.
         if (args.Length < 4) throw Usage("set requires <file> <addr> <input>");
         string file = args[1], addr = args[2], input = args[3];
+        if (file.Length == 0) throw Usage("file argument must not be empty");
         string? outPath = null;
         // R30: strictly positional. Shapes: 4 args, or 6 args with args[4] == "--out". Anything else is a usage error.
         if (args.Length == 5 && args[4] == "--out") throw Usage("--out requires a path");

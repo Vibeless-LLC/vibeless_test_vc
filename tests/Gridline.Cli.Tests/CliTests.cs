@@ -331,6 +331,46 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
+    public void EmptyFileArgument_IsUsageError()
+    {
+        var (c1, o1, e1) = Run("eval", "", "A1");
+        Assert.Equal(1, c1);
+        Assert.Empty(o1);
+        string s1 = Encoding.UTF8.GetString(e1);
+        Assert.StartsWith("error: ", s1);
+        Assert.DoesNotContain("internal error", s1);
+        var (c2, _, e2) = Run("set", "", "A1", "x");
+        Assert.Equal(1, c2);
+        Assert.DoesNotContain("internal error", Encoding.UTF8.GetString(e2));
+    }
+
+    [Fact]
+    public void Process_Script_NonAsciiStdin_DecodedAsUtf8()
+    {
+        string dll = typeof(CliApp).Assembly.Location;
+        var psi = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add(dll);
+        psi.ArgumentList.Add("script");
+        using var p = Process.Start(psi)!;
+        byte[] script = Encoding.UTF8.GetBytes("SET A1 café\nSET B1 =LEN(A1)\nGET B1\n");
+        p.StandardInput.BaseStream.Write(script, 0, script.Length);
+        p.StandardInput.Close();
+        using var ms = new MemoryStream();
+        p.StandardOutput.BaseStream.CopyTo(ms);
+        string err = p.StandardError.ReadToEnd();
+        Assert.True(p.WaitForExit(30000));
+        Assert.Equal(0, p.ExitCode);
+        Assert.Equal("", err);
+        Assert.Equal("B1\tN:4\n", Encoding.UTF8.GetString(ms.ToArray()));
+    }
+
+    [Fact]
     public void Process_Smoke_ExitCodeAndBytes()
     {
         string f = MakeFile("smoke.gridline", ("A1", "'a\tb"));

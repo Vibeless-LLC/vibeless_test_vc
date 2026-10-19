@@ -5,7 +5,7 @@ namespace Gridline.Core.Addressing;
 /// <summary>An address as written in a formula (§4.2), keeping the $ absolute markers.</summary>
 public readonly record struct CellReference(CellAddress Address, bool ColumnAbsolute, bool RowAbsolute)
 {
-    /// <summary>Parses [$]COL[$]ROW. Case-insensitive; rejects whitespace, A0, AAA1, rows over 100000, and leading-zero rows such as A01 (Excel rejects them).</summary>
+    /// <summary>Parses [$]COL[$]ROW. Case-insensitive; rejects whitespace, A0, AAA1, rows over 100000, and leading-zero rows such as A01 (one canonical spelling per row).</summary>
     public static bool TryParse(string? text, out CellReference reference)
         => TryParse(text.AsSpan(), out reference);
 

@@ -5,7 +5,7 @@ namespace Gridline.Cli;
 /// <summary>
 /// The streams a command runs against. Output is UTF-8 without BOM; commands write "\n" explicitly. Stdout is buffered
 /// and only reaches the real stream on <see cref="Flush"/>, so a command that fails can call <see cref="DiscardStdout"/>
-/// and leave stdout empty. Task 16's script mode shares this type.
+/// and leave stdout empty. Script mode shares this type.
 /// </summary>
 public sealed class CliContext
 {

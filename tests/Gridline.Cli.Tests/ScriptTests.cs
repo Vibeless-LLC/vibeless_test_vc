@@ -25,6 +25,16 @@ public sealed class ScriptTests : IDisposable
     }
 
     [Fact]
+    public void Stdin_BomPrefixedScript_FirstCommandWorks()
+    {
+        byte[] bytes = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes("SET A1 café\nSET B1 =LEN(A1)\nGET B1\n")];
+        var o = new MemoryStream();
+        int code = CliApp.Run(["script"], CliApp.OpenStdin(new MemoryStream(bytes)), o, new MemoryStream());
+        Assert.Equal(0, code);
+        Assert.Equal("B1\tN:4\n", Encoding.UTF8.GetString(o.ToArray()));
+    }
+
+    [Fact]
     public void SetKeepsSpacesInInput_AndGetPrintsCanonical()
     {
         var (code, o, _) = Script("SET A1 =1 + 2\nGET A1\nSET B1 hello world\nGET b1\n");

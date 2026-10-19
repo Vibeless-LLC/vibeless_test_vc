@@ -21,6 +21,19 @@ public class WorkbookTests
         };
     }
 
+    [Theory]
+    [InlineData("=-2^2", "N:4")]
+    [InlineData("=2^3^2", "N:64")]
+    [InlineData("=ROUND(2.675,2)", "N:2.68")]
+    [InlineData("=A1", "E:#CIRC!")]
+    [InlineData("=1+", "E:#PARSE!")]
+    public void WorkedExamples_ThroughWorkbook(string input, string expected)
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", input);
+        Assert.Equal(expected, wb.GetValue("A1").ToCanonicalString());
+    }
+
     // ---- §9.1 constants (R23) ----
 
     [Fact]

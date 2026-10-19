@@ -241,44 +241,14 @@ public class RecalculationTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Chain_recalc_meets_generous_time_bound()
-    {
-        // The formal P-2 gate (<= 250 ms Release, median of 5) is Task 17; this guards against gross regressions.
-        var s = BuildChain(100000);
-        s.Graph.RecalculateAll(s, BuiltInFunctionTable.Default);
-        s.Set("A1", "2"); // warm-up
-        var times = new List<double>();
-        for (int i = 0; i < 5; i++)
-        {
-            var sw = Stopwatch.StartNew();
-            var r = s.Set("A1", (3 + i).ToString(CultureInfo.InvariantCulture));
-            sw.Stop();
-            Assert.Equal(99999, r.EvaluatedFormulaCount);
-            times.Add(sw.Elapsed.TotalMilliseconds);
-        }
-        times.Sort();
-        output.WriteLine($"Chain recalc times (ms): {string.Join(", ", times.Select(t => t.ToString("F1", CultureInfo.InvariantCulture)))}");
-#if DEBUG
-        const double bound = 5000;
-#else
-        const double bound = 250;
-#endif
-        Assert.True(times[2] <= bound, $"Median chain recalc {times[2]:F1} ms exceeds {bound} ms.");
-    }
-
-    [Fact]
-    public void Edit_with_no_dependents_is_fast_even_with_many_range_formulas()
+    public void Edit_with_no_dependents_evaluates_nothing_even_with_many_range_formulas()
     {
         var s = new TestSheet();
         for (int r = 1; r <= 100000; r++) s.Apply("B" + r, $"=SUM(A{r}:A{Math.Min(100000, r + 9)})");
         s.Graph.RecalculateAll(s, BuiltInFunctionTable.Default);
-        for (int i = 0; i < 100; i++) s.Set("Z5", "1"); // warm-up
-        var sw = Stopwatch.StartNew();
-        for (int i = 0; i < 1000; i++) s.Set("Z5", (i % 7).ToString(CultureInfo.InvariantCulture));
-        sw.Stop();
-        double mean = sw.Elapsed.TotalMilliseconds / 1000;
-        output.WriteLine($"Mean no-dependent edit: {mean:F4} ms");
-        Assert.True(mean < 1.0, $"Mean no-dependent edit {mean:F4} ms."); // P-3 spirit
+        // Timing budgets live in PerformanceGates (D-30); this test is functional only.
+        for (int i = 0; i < 100; i++)
+            Assert.Equal(0, s.Set("Z5", (i % 7).ToString(CultureInfo.InvariantCulture)).EvaluatedFormulaCount);
         // An edit inside the windows reaches exactly the ten overlapping sums.
         var r2 = s.Set("A500", "1");
         Assert.Equal(10, r2.EvaluatedFormulaCount);

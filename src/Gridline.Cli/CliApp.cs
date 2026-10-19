@@ -3,11 +3,15 @@ using Gridline.IO;
 namespace Gridline.Cli;
 
 /// <summary>
-/// The testable CLI entry point (§10.1, §10.2). Task 16 adds script mode by registering another command in
-/// <see cref="Dispatch"/>; it reuses <see cref="CliContext"/>, <see cref="CliException"/> and <see cref="ExitCodes"/>.
+/// The testable CLI entry point (§10.1, §10.2). Commands (eval, set, script) are arms of
+/// <see cref="Dispatch"/>; they share <see cref="CliContext"/>, <see cref="CliException"/> and <see cref="ExitCodes"/>.
 /// </summary>
 public static class CliApp
 {
+    /// <summary>Decodes stdin as UTF-8 regardless of the console code page; a leading BOM is consumed (§10.3).</summary>
+    public static TextReader OpenStdin(Stream stdin) =>
+        new StreamReader(stdin, new System.Text.UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+
     public static int Run(string[] args, TextReader stdin, Stream stdout, Stream stderr) =>
         RunCore(args, new CliContext(stdin, stdout, stderr), Dispatch);
 
