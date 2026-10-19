@@ -3,13 +3,12 @@ using System.Globalization;
 using Gridline.Core.Dependencies;
 using Gridline.Core.Functions;
 using Gridline.Core.Parsing;
-using Xunit.Abstractions;
 using static Gridline.Core.Tests.Dependencies.TestSheet;
 
 namespace Gridline.Core.Tests.Dependencies;
 
 /// <summary>§6.1 incremental recalc, §6.7 iterative scheduling and cycle detection (R9, R21, R22).</summary>
-public class RecalculationTests(ITestOutputHelper output)
+public class RecalculationTests
 {
     [Fact]
     public void Edit_recomputes_dependents_in_topological_order()
