@@ -1,0 +1,13 @@
+# vibeless-managed
+.mcp.json
+# vibeless-managed
+.claude/settings.json
+# vibeless-managed
+.vibeless\hooks\
+
+bin/
+obj/
+.vs/
+*.user
+TestResults/
+.superpowers/
