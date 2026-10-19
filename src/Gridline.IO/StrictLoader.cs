@@ -27,10 +27,10 @@ internal static class StrictLoader
         {
             throw;
         }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
+        catch (JsonException ex)
         {
-            // JsonException: syntax/UTF-8/depth; InvalidOperationException: reader misuse on bad tokens;
-            // ArgumentException: Workbook.FromCells rejected an entry (R5).
+            // Syntax/UTF-8/depth errors from the reader. Anything else (a Core bug) propagates rather than being
+            // disguised as a format error.
             throw new GridlineFormatException("Invalid .gridline file: " + ex.Message, ex);
         }
     }
@@ -138,7 +138,16 @@ internal static class StrictLoader
         if (namesNonEmpty) throw Fail("non-empty \"names\" are not supported by this version.");
         if (!hasCells) throw Fail("\"cells\" is missing.");
 
-        return Workbook.FromCells(ReadCells(ref cellsReader));
+        var cells = ReadCells(ref cellsReader);
+        try
+        {
+            return Workbook.FromCells(cells);
+        }
+        catch (ArgumentException ex)
+        {
+            // FromCells rejected an entry (duplicate, invalid input; R5). Only this call is mapped.
+            throw new GridlineFormatException("Invalid .gridline file: " + ex.Message, ex);
+        }
     }
 
     private static List<KeyValuePair<string, string>> ReadCells(ref Utf8JsonReader reader)
