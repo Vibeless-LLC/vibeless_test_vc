@@ -39,7 +39,6 @@ public class OperatorTests
     [InlineData("TRUE+TRUE", 2)]
     [InlineData("FALSE*5", 0)]
     [InlineData("-TRUE", -1)]
-    [InlineData("+\"4\"", 4)]
     [InlineData("\"10\"%", 0.1)]
     public void Arithmetic(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
 
@@ -47,10 +46,28 @@ public class OperatorTests
     [InlineData("\"a\"+1")]
     [InlineData("1-\"\"")]
     [InlineData("-\"x\"")]
-    [InlineData("+\"x\"")]
     [InlineData("\"x\"%")]
     [InlineData("\"TRUE\"*1")]
     public void Arithmetic_NonNumericText_IsValue(string formula) => Assert.Equal(E(ErrorCodes.Value), Run(formula));
+
+    // R15: unary + is a no-op (no coercion); a blank operand still yields 0 (§6.6).
+    [Fact]
+    public void UnaryPlus_ReturnsOperandUnchanged()
+    {
+        var cells = new DictionaryCells().Set("B1", "t");
+        Assert.Equal(T("x"), Run("+\"x\""));
+        Assert.Equal(T("4"), Run("+\"4\""));
+        Assert.Equal(B(true), Run("+TRUE"));
+        Assert.Equal(N(3), Run("+3"));
+        Assert.Equal(E(ErrorCodes.NA), Run("+#N/A"));
+        Assert.Equal(T("t"), Run("+B1", cells));
+        Assert.Equal(T("ab"), Run("+\"a\"&\"b\""));
+        Assert.Equal(B(false), Run("+\"1\"=1"));  // still text, so not equal to a number
+        Assert.Equal(N(0), Run("+A1"));
+        Assert.Equal(T("0x"), Run("(+A1)&\"x\""));
+        Assert.Equal(N(-4), Run("-+\"4\""));      // negation still coerces
+        Assert.Equal(E(ErrorCodes.Value), Run("+A1:A2"));
+    }
 
     [Fact]
     public void ArithmeticResult_NegativeZero_IsZero()
@@ -105,7 +122,7 @@ public class OperatorTests
     [InlineData("TRUE&FALSE", "TRUEFALSE")]
     [InlineData("A1&\"x\"", "x")]              // blank concatenates as ""
     [InlineData("(0.1+0.2)&\"\"", "0.3")]
-    [InlineData("1E-5&\"\"", "1E-5")]
+    [InlineData("1E-5&\"\"", "1E-05")]
     [InlineData("\"\"&\"\"", "")]
     public void Concat(string formula, string expected) => Assert.Equal(T(expected), Run(formula));
 

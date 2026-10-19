@@ -65,8 +65,8 @@ public class CoercionTests
     [InlineData(123456789012345, "123456789012345")]
     [InlineData(1e15, "1E+15")]
     [InlineData(1.5e300, "1.5E+300")]
-    [InlineData(1e-5, "1E-5")]                    // exponent leading zeros dropped (G15 gives 1E-05)
-    [InlineData(1.25e-7, "1.25E-7")]
+    [InlineData(1e-5, "1E-05")]                   // R14: exactly G15, exponent as .NET prints it
+    [InlineData(1.25e-7, "1.25E-07")]
     [InlineData(0.0001, "0.0001")]
     [InlineData(1e100, "1E+100")]
     [InlineData(0.0, "0")]

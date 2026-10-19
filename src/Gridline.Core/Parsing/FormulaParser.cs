@@ -14,6 +14,10 @@ public static class FormulaParser
     /// <summary>Maximum nesting of parentheses, function calls and prefix unary operators combined (ruling R8).</summary>
     public const int MaxNestingDepth = 1024;
 
+    /// <summary>Maximum nesting of function calls (ruling R13, §5.4, §6.7): the 65th nested call is a parse error, which bounds
+    /// evaluator re-entry through lazy arguments. The combined <see cref="MaxNestingDepth"/> cap still applies.</summary>
+    public const int MaxCallNestingDepth = 64;
+
     private const int ComparisonLevel = 1;
     private const int ConcatLevel = 2;
     private const int AdditiveLevel = 3;
@@ -63,6 +67,7 @@ public static class FormulaParser
         private readonly List<Group> _groups = [];
         private int _pos;
         private int _depth;
+        private int _callDepth;
 
         private Token Current => tokens[_pos];
         private int OpBase => _groups.Count == 0 ? 0 : _groups[^1].OpBase;
@@ -165,6 +170,8 @@ public static class FormulaParser
                     return true;
                 case TokenKind.Function:
                     Enter(t);
+                    if (++_callDepth > MaxCallNestingDepth)
+                        throw new ParseFailure($"Function calls are nested deeper than the maximum of {MaxCallNestingDepth}.", t.Position);
                     _pos++;
                     if (Current.Kind != TokenKind.LParen) throw Unexpected(Current); // the tokenizer guarantees '('
                     _pos++;
@@ -221,6 +228,7 @@ public static class FormulaParser
                 Push(new ParenNode(last!));
                 return;
             }
+            _callDepth--;
             if (last is not null) g.Args.Add(last);
             string name = g.Opener.Text;
             if (arities is not null && arities.TryGetArity(name, out int min, out int max)

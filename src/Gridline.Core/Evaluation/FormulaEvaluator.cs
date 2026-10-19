@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Gridline.Core.Parsing;
 
 namespace Gridline.Core.Evaluation;
@@ -6,7 +5,8 @@ namespace Gridline.Core.Evaluation;
 /// <summary>
 /// Scalar evaluator for parsed formulas (§6). Walks the AST with explicit stacks (ruling R9), so long operator chains
 /// use constant call-stack depth; the only re-entry is a function evaluating one of its lazy arguments, which is
-/// bounded by the parser's nesting cap (R8).
+/// bounded by the parser's 64-level call-nesting cap (R13, §5.4, §6.7), with a stack check at the re-entry point as a
+/// backstop (see <see cref="FunctionArguments.Evaluate"/>).
 /// </summary>
 public static class FormulaEvaluator
 {
@@ -58,7 +58,6 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
     /// an argument; each call works above the stack heights it found and restores them on exit (even on exceptions).
     /// The result may be Blank (empty cell reference, omitted argument, Blank function result).
     /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)] // small frames on the re-entry path (R8, R9)
     public CellValue EvaluateScalar(FormulaNode root)
     {
         int workBase = _workCount, valueBase = _valueCount;
@@ -70,10 +69,12 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
                 var frame = _work[--_workCount];
                 _work[_workCount] = default; // drop the node reference
                 if (frame.Expanded) Apply(frame.Node);
-                else if (frame.Node is FunctionCallNode call) PushValue(Invoke(call)); // kept out of Visit: re-entry path
+                else if (frame.Node is FunctionCallNode call) PushValue(Invoke(call));
                 else Visit(frame.Node);
             }
-            return _values[--_valueCount];
+            var result = _values[--_valueCount];
+            _values[_valueCount] = default; // drop the stale reference
+            return result;
         }
         finally
         {
@@ -130,7 +131,6 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private CellValue Invoke(FunctionCallNode call)
     {
         if (functions is null || !functions.TryResolve(call.Name, out var function)) return Errors.Name;

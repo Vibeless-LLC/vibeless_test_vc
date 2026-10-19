@@ -318,8 +318,16 @@ public class FormulaParserTests
     [Fact] public void TwoThousandNestedParensIsParseErrorWithoutCrashing() => Fails(Nest(2000, "(", "1", ")"));
     [Fact] public void MaxLengthNestedParensIsParseError() => Fails(new string('(', 32767));
 
-    [Fact] public void NestedCallsAtTheCapParse() => Assert.True(FormulaParser.Parse(Nest(1024, "F(", "1", ")"), null).Success);
-    [Fact] public void NestedCallsBeyondTheCapAreParseError() => Fails(Nest(1025, "F(", "1", ")"));
+    // R13: function calls nest at most 64 deep (the combined R8 cap of 1024 still applies).
+    [Fact] public void MaxCallDepthIs64() => Assert.Equal(64, FormulaParser.MaxCallNestingDepth);
+    [Fact] public void NestedCallsAtTheCallCapParse() => Assert.True(FormulaParser.Parse(Nest(64, "F(", "1", ")"), null).Success);
+    [Fact] public void NestedCallsBeyondTheCallCapAreParseError() => Fails(Nest(65, "F(", "1", ")"), position: 128);
+    [Fact] public void NestedCallsFarBeyondTheCallCapAreParseError() => Fails(Nest(1025, "F(", "1", ")"));
+    [Fact] public void SiblingCallsDoNotAccumulateCallDepth() =>
+        Assert.True(FormulaParser.Parse(Nest(62, "F(", "G(1)+G(2)+G(H(3))+G(H(4))", ")"), null).Success);
+    [Fact] public void ParensDoNotCountAsCalls() =>
+        Assert.True(FormulaParser.Parse(Nest(64, "F((", "1", "))"), null).Success);
+    [Fact] public void CallCapCountsCallsInsideParens() => Fails(Nest(65, "(F(", "1", "))"), position: 64 * 3 + 1);
     [Fact] public void UnaryChainAtTheCapParses() => Assert.True(FormulaParser.Parse(new string('-', 1024) + "1", null).Success);
     [Fact] public void UnaryChainBeyondTheCapIsParseError() => Fails(new string('-', 1025) + "1", position: 1024);
     [Fact] public void LongUnaryChainIsParseErrorWithoutCrashing() => Fails(new string('-', 32766) + "1");
@@ -332,10 +340,10 @@ public class FormulaParserTests
         string[] inputs =
         [
             Nest(1024, "(", "1", ")"),
-            Nest(1024, "SUM(", "1", ")"),
+            Nest(64, "SUM(" + new string('(', 15), "1", new string(')', 15) + ")"), // 64 calls x 16 levels = 1024
             new string('-', 1024) + "1",
             Nest(512, "(", Nest(512, "-", "1", ""), ")"),
-            Nest(1024, "IF(1,", "2", ",3)"),
+            Nest(64, "IF(1,", "2", ",3)"),
         ];
         var results = new bool[inputs.Length];
         var thread = new Thread(() =>

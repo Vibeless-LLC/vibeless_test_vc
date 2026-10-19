@@ -182,13 +182,44 @@ public class FormulaEvaluatorTests
         Assert.Equal(T("1"), result);
     }
 
+    // R13: function calls nest at most 64 deep, so re-entry through lazy arguments is bounded. The fakes are ordinary
+    // (not AggressiveOptimization) lambdas, as real library functions will be.
     [Fact]
-    public void ThousandNestedFunctionCalls_On1MbStack_NoStackOverflow()
+    public void SixtyFourNestedSumLikeCalls_On1MbStack_NoStackOverflow()
     {
-        var text = string.Concat(Enumerable.Repeat("ID(", 1000)) + "1+1" + new string(')', 1000);
+        var sum = string.Concat(Enumerable.Repeat("FSUM(", 64)) + "1" + string.Concat(Enumerable.Repeat(",1)", 64));
+        var lazyIf = string.Concat(Enumerable.Repeat("FIF(TRUE,", 64)) + "7" + string.Concat(Enumerable.Repeat(",0)", 64));
+        var withParens = string.Concat(Enumerable.Repeat("FSUM(" + new string('(', 15), 64)) + "1"
+            + string.Concat(Enumerable.Repeat(new string(')', 15) + ",A1:A2)", 64)); // combined depth 1024 (R8 cap)
+        var cells = new DictionaryCells().Set("A1", 1);
+        CellValue s = default, f = default, p = default;
+        OnSmallStack(1024 * 1024, () => { s = Run(sum); f = Run(lazyIf); p = Run(withParens, cells); });
+        Assert.Equal(N(65), s);
+        Assert.Equal(N(7), f);
+        Assert.Equal(N(65), p);
+    }
+
+    [Fact]
+    public void SixtyFiveNestedCalls_IsParseError()
+    {
+        var text = string.Concat(Enumerable.Repeat("FSUM(", 65)) + "1" + new string(')', 65);
+        var parsed = FormulaParser.Parse(text, null);
+        Assert.False(parsed.Success);
+        Assert.Equal(E(ErrorCodes.Parse), FormulaEvaluator.Evaluate(parsed, new DictionaryCells(), new FakeFunctions()));
+    }
+
+    [Fact]
+    public void ReentryWithInsufficientStack_IsNum_NotACrash()
+    {
+        // R13(b) backstop: a function that has already used up nearly all of the stack asks for an argument.
+        var fns = new FakeFunctions();
+        fns.Add("DEEP", a => Burn(a));
         CellValue result = default;
-        OnSmallStack(1024 * 1024, () => result = Run(text));
-        Assert.Equal(N(2), result);
+        OnSmallStack(1024 * 1024, () => result = Run("DEEP(1+1)", functions: fns));
+        Assert.Equal(E(ErrorCodes.Num), result);
+
+        static CellValue Burn(IFunctionArguments a) =>
+            System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack() ? Burn(a) : a.Evaluate(0);
     }
 
     [Fact]

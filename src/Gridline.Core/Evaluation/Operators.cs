@@ -40,10 +40,16 @@ internal static class Operators
         };
     }
 
+    /// <summary>
+    /// Negation coerces to a number. Unary + is a no-op returning its operand unchanged (ruling R15: <c>+"x"</c> is
+    /// "x", <c>+TRUE</c> is TRUE), except that a blank operand yields 0 (§6.6).
+    /// </summary>
     public static CellValue Unary(UnaryOperator op, CellValue operand)
     {
+        if (op == UnaryOperator.Plus)
+            return operand.Kind == ValueKind.Blank ? CellValue.FromNumber(0) : operand;
         if (!Coercion.TryToNumber(operand, out var a, out var error)) return error;
-        return CellValue.FromNumber(op == UnaryOperator.Negate ? -a : a);
+        return CellValue.FromNumber(-a);
     }
 
     public static CellValue Percent(CellValue operand)

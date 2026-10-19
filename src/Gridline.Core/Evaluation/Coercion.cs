@@ -70,20 +70,11 @@ public static class Coercion
     }
 
     /// <summary>
-    /// Text form of a number (§6.2): <c>ToString("G15", InvariantCulture)</c>, with -0 printed as "0" and the
-    /// exponent written without leading zeros but with its sign ("1E-05" becomes "1E-5"; "1E+15" stays).
+    /// Text form of a number (§6.2, ruling R14): exactly <c>ToString("G15", InvariantCulture)</c>, e.g. "1E-05",
+    /// "1.25E-07", "1E+15"; the only adjustment is that -0 prints as "0".
     /// </summary>
-    public static string NumberToText(double number)
-    {
-        if (number == 0) return "0"; // also -0
-        var s = number.ToString("G15", CultureInfo.InvariantCulture);
-        int e = s.IndexOf('E');
-        if (e < 0) return s;
-        int digits = e + 2; // skip 'E' and its sign
-        int i = digits;
-        while (i < s.Length - 1 && s[i] == '0') i++;
-        return i == digits ? s : string.Concat(s.AsSpan(0, digits), s.AsSpan(i));
-    }
+    public static string NumberToText(double number) =>
+        number == 0 ? "0" : number.ToString("G15", CultureInfo.InvariantCulture);
 
     /// <summary>Text of a non-error, non-text value; text returns itself.</summary>
     internal static string ScalarToText(CellValue value) => value.Kind switch
