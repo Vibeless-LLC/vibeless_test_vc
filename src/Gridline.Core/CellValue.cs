@@ -67,6 +67,9 @@ public readonly struct CellValue : IEquatable<CellValue>
         _ => "BLANK",
     };
 
+    /// <summary>Escapes backslash, tab, LF and CR as two-character sequences (§8.3), as used by the T: canonical form.</summary>
+    public static string EscapeText(string s) => Escape(s);
+
     private static string Escape(string s)
     {
         const char Bs = (char)92;
