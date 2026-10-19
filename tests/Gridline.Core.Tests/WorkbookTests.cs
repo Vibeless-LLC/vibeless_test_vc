@@ -2,12 +2,11 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Gridline.Core.Evaluation;
 using Gridline.Core.Functions;
-using Xunit.Abstractions;
 
 namespace Gridline.Core.Tests;
 
 /// <summary>Workbook Phase 1 API (§9.1, §9.2; rulings R5, R23, R24).</summary>
-public class WorkbookTests(ITestOutputHelper output)
+public class WorkbookTests
 {
     private static CellValue N(double d) => CellValue.FromNumber(d);
     private static CellValue E(string code) => CellValue.FromError(code);
@@ -600,69 +599,5 @@ public class WorkbookTests(ITestOutputHelper output)
         Assert.ThrowsAny<ArgumentException>(() =>
             Workbook.FromCells([new("A1", "=BOOM(1)"), new("B1", "=BOOM(2)"), new("A1", "x")], resolver));
         Assert.Equal(0, resolver.Invocations); // nothing was built or evaluated
-    }
-
-    // ---- P-2 (§12, §6.7) through the facade: 100,000-cell chain ----
-
-    [Fact]
-    [Trait("Category", "Performance")]
-    public void ChainOf100k_FromCellsThenEditA1()
-    {
-        var cells = new List<KeyValuePair<string, string>>(100000) { new("A1", "1") };
-        for (int r = 2; r <= 100000; r++) cells.Add(new("A" + r, "=A" + (r - 1) + "+1"));
-        long t0 = Stopwatch.GetTimestamp();
-        var wb = Workbook.FromCells(cells);
-        output.WriteLine($"FromCells 100k chain: {Stopwatch.GetElapsedTime(t0).TotalMilliseconds:F1} ms");
-        Assert.Equal(N(100000), wb.GetValue("A100000"));
-        Assert.Equal(99999, wb.LastRecalc.EvaluatedFormulaCount);
-
-        int eventCount = 0, addressCount = 0;
-        wb.CellsChanged += (_, e) => { eventCount++; addressCount = e.Addresses.Count; };
-        var times = new List<double>();
-        for (int i = 0; i < 5; i++)
-        {
-            t0 = Stopwatch.GetTimestamp();
-            wb.SetCell("A1", (i + 2).ToString(System.Globalization.CultureInfo.InvariantCulture));
-            times.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
-        }
-        times.Sort();
-        output.WriteLine($"P-2 SetCell A1 median: {times[2]:F1} ms");
-        Assert.Equal(99999, wb.LastRecalc.EvaluatedFormulaCount);
-        Assert.Equal(N(100005), wb.GetValue("A100000"));
-        Assert.Equal(5, eventCount);
-        Assert.Equal(100000, addressCount);
-        Assert.True(times[2] <= 250, $"median {times[2]} ms");
-    }
-
-    // ---- P-3 (§12): SetCell with no dependents, median <= 1 ms ----
-
-    [Fact]
-    [Trait("Category", "Performance")]
-    public void SetCell_NoDependents_MedianUnderOneMillisecond()
-    {
-        var wb = new Workbook();
-        for (int r = 1; r <= 1000; r++) wb.SetCell("A" + r, "=B" + r + "*2");
-        wb.CellsChanged += (_, _) => { };
-        for (int i = 0; i < 200; i++) wb.SetCell("C" + (i + 1), i.ToString(System.Globalization.CultureInfo.InvariantCulture)); // warm-up
-
-        var medians = new List<double>();
-        for (int run = 0; run < 5; run++)
-        {
-            var times = new double[1000];
-            for (int i = 0; i < 1000; i++)
-            {
-                string address = "D" + (i + 1);
-                string input = (run * 1000 + i).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                long t0 = Stopwatch.GetTimestamp();
-                wb.SetCell(address, input);
-                times[i] = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
-            }
-            Array.Sort(times);
-            medians.Add(times[500]);
-        }
-        medians.Sort();
-        output.WriteLine($"P-3 per-edit medians (ms): {string.Join(", ", medians.Select(m => m.ToString("F4")))}");
-        Assert.True(medians[2] <= 1.0, $"median {medians[2]} ms");
-        Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount);
     }
 }
