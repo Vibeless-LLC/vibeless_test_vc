@@ -21,3 +21,13 @@ public class UsesForbiddenTypes
     public void C() => Console.WriteLine();
     public object W() => new Gridline.Core.Workbook();
 }
+
+public class UsesOnlyFile
+{
+    public bool F() => File.Exists("x");
+}
+
+public class UsesParsing
+{
+    public object P() => Gridline.Core.Parsing.FormulaParser.Parse("=1", null);
+}

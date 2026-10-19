@@ -7,14 +7,15 @@ namespace Gridline.Architecture.Tests;
 /// Root-namespace decision (DECISIONS D-29): types directly in Gridline.Core (Workbook, CellValue, ...) count as
 /// "another Core namespace" for Addressing, so Addressing may not use them either. For the other rules the root is
 /// not in the forbidden lists, so it is unrestricted. Prefix matching: "Gridline.Core" would match every
-/// sub-namespace, so siblings are enumerated (with a trailing dot) and root types are listed by full name.</summary>
+/// sub-namespace, so siblings are enumerated and root types are listed by full name. NetArchTest 1.3.2 never
+/// matches a namespace given with a trailing dot, so bare names are used and prefix collisions are guarded by a test.</summary>
 public class NamespaceRuleTests
 {
     private static readonly string[] Siblings = ["Addressing", "Parsing", "Evaluation", "Functions", "Dependencies", "Commands"];
 
     private static void AssertNoDeps(string ns, params string[] forbiddenSubNamespaces)
     {
-        var r = NamespaceMustNotDependOn(CoreAsm, Ns(ns), forbiddenSubNamespaces.Select(n => Ns(n) + ".").ToArray());
+        var r = SiblingRule(CoreAsm, Ns(ns), forbiddenSubNamespaces);
         Assert.True(r.IsSuccessful, Describe(r));
     }
 
@@ -48,6 +49,20 @@ public class NamespaceRuleTests
     [Fact]
     public void S3_3_Dependencies_DoesNotDependOnFunctionsOrCommands() =>
         AssertNoDeps("Dependencies", "Functions", "Commands");
+
+    // Prefix-collision guard: bare namespace prefixes are safe only if no Core namespace merely starts with a sibling name.
+    [Fact]
+    public void S3_3_NoCoreNamespaceCollidesWithSiblingPrefix()
+    {
+        foreach (var t in CoreAsm.GetTypes())
+            foreach (var sib in Siblings)
+            {
+                var p = Ns(sib);
+                var n = t.Namespace ?? "";
+                Assert.False(n.StartsWith(p, StringComparison.Ordinal) && n != p && !n.StartsWith(p + ".", StringComparison.Ordinal),
+                    $"{t.FullName} is in a namespace that collides with prefix {p}");
+            }
+    }
 
     // Guard against vacuous namespace rules: every namespace except Commands (still empty in Phase 1) has types.
     [Theory]

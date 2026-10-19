@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using Gridline.Core;
-using Gridline.Core.Addressing;
 using Xunit.Abstractions;
 
 namespace Gridline.IO.Tests;
@@ -34,8 +33,6 @@ public class PerformanceGates(ITestOutputHelper output)
         values.Sort();
         return values[values.Count / 2];
     }
-
-    private static string Addr(int col, int row) => new CellAddress(col, row).ToString();
 
     /// <summary>R32 P-1/P-5 fixture: 100,000 cells in a 100,000-row layout; rows 1..50,000 are numeric
     /// constants in column A, rows 50,001..100,000 are simple formulas "=A{r-50000}*2".</summary>
@@ -97,6 +94,7 @@ public class PerformanceGates(ITestOutputHelper output)
         for (int r = 2; r <= 100_000; r++) cells.Add(new("A" + r, "=A" + (r - 1) + "+1"));
         var wb = Workbook.FromCells(cells);
         Assert.Equal(99_999, wb.LastRecalc.EvaluatedFormulaCount);
+        Assert.Equal(CellValue.FromNumber(100_000), wb.GetValue("A100000"));
 
         int events = 0, changed = 0;
         wb.CellsChanged += (_, e) => { events++; changed = e.Addresses.Count; };

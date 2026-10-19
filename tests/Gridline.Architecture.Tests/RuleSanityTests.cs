@@ -37,7 +37,25 @@ public class RuleSanityTests
     [Fact]
     public void NamespaceRule_FailsOnKnownViolation()
     {
+        // Same helper and same Ns()-style names as the production §3.3 tests.
+        var bad = SiblingRule(Self, typeof(UsesParsing).Namespace!, "Parsing");
+        Assert.False(bad.IsSuccessful, "dependency on Gridline.Core.Parsing was not detected");
+        var ok = SiblingRule(Self, typeof(UsesParsing).Namespace!, "Commands");
+        Assert.True(ok.IsSuccessful, "unrelated sibling must not be flagged: " + Describe(ok));
+    }
+
+    [Fact]
+    public void RootTypeRule_FailsOnKnownViolation()
+    {
         var r = NamespaceMustNotDependOn(Self, typeof(UsesForbiddenTypes).Namespace!, CoreRootTypeNames());
+        Assert.False(r.IsSuccessful);
+    }
+
+    [Fact]
+    public void FileRule_DiscriminatesFileFromFileStream()
+    {
+        var r = Types.InAssembly(Self).That().HaveName(nameof(UsesOnlyFile))
+            .ShouldNot().HaveDependencyOnAny("System.IO.File").GetResult();
         Assert.False(r.IsSuccessful);
     }
 

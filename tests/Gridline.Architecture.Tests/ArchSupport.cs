@@ -33,6 +33,12 @@ internal static class ArchSupport
         Types.InAssembly(asm).That().ResideInNamespaceStartingWith(ns)
             .ShouldNot().HaveDependencyOnAny(forbidden).GetResult();
 
+    /// <summary>The single helper behind every §3.3 sibling-namespace rule: types under ownerNamespace must not
+    /// depend on Gridline.Core.{sibling}. NOTE: NetArchTest 1.3.2 never matches a namespace with a trailing dot,
+    /// so the namespace is passed bare (prefix collisions are excluded by a separate test).</summary>
+    public static TestResult SiblingRule(Assembly asm, string ownerNamespace, params string[] siblings) =>
+        NamespaceMustNotDependOn(asm, ownerNamespace, siblings.Select(Ns).ToArray());
+
     public static TestResult AssemblyMustNotDependOn(Assembly asm, params string[] forbidden) =>
         Types.InAssembly(asm).ShouldNot().HaveDependencyOnAny(forbidden).GetResult();
 
@@ -60,7 +66,7 @@ internal static class ArchSupport
     }
 
     public static string[] ReferencedGridlineAssemblies(Assembly asm) =>
-        asm.GetReferencedAssemblies().Select(a => a.Name!).Where(n => n.StartsWith("Gridline", StringComparison.Ordinal))
+        asm.GetReferencedAssemblies().Select(a => a.Name!).Where(n => n.StartsWith("Gridline", StringComparison.OrdinalIgnoreCase))
             .OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
     // ---- §3.3: no public mutable static state ----
