@@ -1,6 +1,7 @@
 using Gridline.Core.Evaluation;
 using Gridline.Core.Functions;
 using Gridline.Core.Tests.Evaluation;
+using DelegateFunction = Gridline.Core.Tests.Evaluation.DelegateFunction;
 using static Gridline.Core.Tests.Functions.Fx;
 
 namespace Gridline.Core.Tests.Functions;
