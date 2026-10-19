@@ -28,13 +28,16 @@ public sealed class CliContext
 
     public void DiscardStdout() => _out.Clear();
 
-    /// <summary>Writes pending stdout, then the single error line when <paramref name="errorMessage"/> is given.</summary>
-    public void Flush(string? errorMessage = null)
+    /// <summary>Writes the pending stdout and clears it.</summary>
+    public void FlushStdout()
     {
-        Write(_stdoutStream, _out.ToString());
+        string text = _out.ToString();
         _out.Clear();
-        if (errorMessage is not null) Write(_stderrStream, "error: " + OneLine(errorMessage) + "\n");
+        Write(_stdoutStream, text);
     }
+
+    /// <summary>Writes the single `error: ...` line to stderr.</summary>
+    public void WriteError(string message) => Write(_stderrStream, "error: " + OneLine(message) + "\n");
 
     /// <summary>Collapses CR and LF runs to one space (or nothing at the end) so a message is exactly one line.</summary>
     public static string OneLine(string message)

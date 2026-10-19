@@ -5,6 +5,9 @@
     <RootNamespace>Gridline.Cli</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Gridline.Cli.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Gridline.Core\Gridline.Core.csproj" />
     <ProjectReference Include="..\Gridline.IO\Gridline.IO.csproj" />
   </ItemGroup>

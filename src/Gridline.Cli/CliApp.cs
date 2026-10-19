@@ -8,14 +8,17 @@ namespace Gridline.Cli;
 /// </summary>
 public static class CliApp
 {
-    public static int Run(string[] args, TextReader stdin, Stream stdout, Stream stderr)
+    public static int Run(string[] args, TextReader stdin, Stream stdout, Stream stderr) =>
+        RunCore(args, new CliContext(stdin, stdout, stderr), Dispatch);
+
+    /// <summary>Test seam: runs with an injectable dispatcher so the internal-error path is reachable.</summary>
+    internal static int RunCore(string[] args, CliContext ctx, Func<string[], CliContext, int> dispatch)
     {
-        var ctx = new CliContext(stdin, stdout, stderr);
         int code;
         string? error = null;
         try
         {
-            code = Dispatch(args, ctx);
+            code = dispatch(args, ctx);
         }
         catch (CliException ex) { code = ex.ExitCode; error = ex.Message; }
         catch (GridlineIOException ex) { code = ExitCodes.FileIo; error = ex.Message; }
@@ -23,7 +26,18 @@ public static class CliApp
         catch (Exception ex) { code = ExitCodes.Usage; error = "internal error: " + ex.Message; }
 
         if (error is not null) ctx.DiscardStdout();
-        ctx.Flush(error);
+        try
+        {
+            ctx.FlushStdout();
+        }
+        catch (Exception ex) // closed pipe or handle: never escape Run (R29: exit codes stay 0-5)
+        {
+            if (code == ExitCodes.Success) { code = ExitCodes.Usage; error = "cannot write output: " + ex.Message; }
+        }
+        if (error is not null)
+        {
+            try { ctx.WriteError(error); } catch (Exception) { /* stderr unavailable; nothing more can be reported */ }
+        }
         return code;
     }
 

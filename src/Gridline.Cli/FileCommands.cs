@@ -37,10 +37,10 @@ public static class FileCommands
         if (args.Length < 4) throw Usage("set requires <file> <addr> <input>");
         string file = args[1], addr = args[2], input = args[3];
         string? outPath = null;
+        // R30: strictly positional. Shapes: 4 args, or 6 args with args[4] == "--out". Anything else is a usage error.
+        if (args.Length == 5 && args[4] == "--out") throw Usage("--out requires a path");
         if (args.Length == 6 && args[4] == "--out") outPath = args[5];
-        else if (args.Length == 5 && args[4] == "--out") throw Usage("--out requires a path");
-        else if (args.Length > 4)
-            throw Usage(args[4].StartsWith('-') ? $"unknown option '{args[4]}'" : $"unexpected argument '{args[4]}'");
+        else if (args.Length > 4) throw Usage("too many arguments");
         if (outPath is { Length: 0 }) throw Usage("--out requires a non-empty path");
 
         CellArgs.CheckInputLength(input);

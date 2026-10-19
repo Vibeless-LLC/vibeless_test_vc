@@ -226,6 +226,110 @@ public sealed class CliTests : IDisposable
         Assert.Equal("ab", Gridline.Cli.CliContext.OneLine("ab\n"));
     }
 
+    private sealed class ThrowingStream : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => throw new IOException("broken pipe");
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new IOException("broken pipe");
+    }
+
+    [Fact]
+    public void BrokenStdout_DoesNotThrow_AndReturnsNonZeroCodeInRange()
+    {
+        string f = MakeFile("a.gridline", ("A1", "1"));
+        var err = new MemoryStream();
+        int code = CliApp.Run(new[] { "eval", f, "A1" }, new StringReader(""), new ThrowingStream(), err);
+        Assert.Equal(1, code);
+        AssertSingleErrorLine(err.ToArray());
+    }
+
+    [Fact]
+    public void BrokenStdout_WithFailure_KeepsOriginalCode()
+    {
+        var err = new MemoryStream();
+        int code = CliApp.Run(new[] { "eval", Path_("nope.gridline"), "A1" }, new StringReader(""), new ThrowingStream(), err);
+        Assert.Equal(2, code);
+        AssertSingleErrorLine(err.ToArray());
+    }
+
+    [Fact]
+    public void BrokenStdoutAndStderr_DoesNotThrow()
+    {
+        string f = MakeFile("a.gridline", ("A1", "1"));
+        int code = CliApp.Run(new[] { "eval", f, "A1" }, new StringReader(""), new ThrowingStream(), new ThrowingStream());
+        Assert.InRange(code, 0, 5);
+        Assert.NotEqual(0, code);
+    }
+
+    [Fact]
+    public void UnexpectedException_IsInternalError_Exit1_SingleLine()
+    {
+        var o = new MemoryStream();
+        var e = new MemoryStream();
+        var ctx = new CliContext(new StringReader(""), o, e);
+        int code = CliApp.RunCore(Array.Empty<string>(), ctx,
+            (_, c) => { c.Out("partial\n"); throw new InvalidOperationException("boom\nline2"); });
+        Assert.Equal(1, code);
+        Assert.Empty(o.ToArray());
+        Assert.Equal("error: internal error: boom line2\n", S(e.ToArray()));
+    }
+
+    [Fact]
+    public void Set_OptionLikeInput_IsStoredVerbatim()
+    {
+        string f = MakeFile("a.gridline");
+        Assert.Equal(0, Run("set", f, "A1", "--out").code);
+        Assert.Equal("--out", GridlineFile.LoadFromPath(f).GetInput("A1"));
+    }
+
+    [Theory]
+    [InlineData("--out requires a path", "set", "F", "A1", "x", "--out")]
+    [InlineData("too many arguments", "set", "F", "A1", "x", "--out", "p", "extra")]
+    [InlineData("too many arguments", "set", "F", "A1", "x", "y")]
+    public void Set_UsageMessages_AreAccurate(string message, params string[] args)
+    {
+        string f = MakeFile("a.gridline", ("A1", "1"));
+        args = args.Select(a => a == "F" ? f : a).ToArray();
+        var (code, o, e) = Run(args);
+        Assert.Equal(1, code);
+        Assert.Empty(o);
+        Assert.Equal("error: " + message + "\n", S(e));
+    }
+
+    [Fact]
+    public void Set_MalformedFile_Exit3()
+    {
+        string f = Path_("bad.gridline");
+        File.WriteAllText(f, "{ not json");
+        var (code, o, e) = Run("set", f, "A1", "1");
+        Assert.Equal(3, code);
+        Assert.Empty(o);
+        AssertSingleErrorLine(e);
+    }
+
+    [Fact]
+    public void Stderr_HasNoBom()
+    {
+        var (_, _, e) = Run("bogus");
+        Assert.True(e.Length > 0);
+        Assert.False(e.Length >= 3 && e[0] == 0xEF && e[1] == 0xBB && e[2] == 0xBF);
+        Assert.Equal((byte)'e', e[0]);
+    }
+
+    [Fact]
+    public void InvalidAddress_TakesPrecedenceOverMissingFile()
+    {
+        Assert.Equal(5, Run("eval", Path_("nope.gridline"), "A0").code);
+        Assert.Equal(5, Run("set", Path_("nope.gridline"), "A0", "1").code);
+    }
+
     [Fact]
     public void Process_Smoke_ExitCodeAndBytes()
     {
