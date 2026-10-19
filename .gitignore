@@ -11,3 +11,4 @@ obj/
 *.user
 TestResults/
 .superpowers/
+.vibeless/hooks/
