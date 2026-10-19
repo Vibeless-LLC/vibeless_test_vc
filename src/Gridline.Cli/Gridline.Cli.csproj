@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>gridline</AssemblyName>
+    <RootNamespace>Gridline.Cli</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gridline.Core\Gridline.Core.csproj" />
+    <ProjectReference Include="..\Gridline.IO\Gridline.IO.csproj" />
+  </ItemGroup>
+</Project>
