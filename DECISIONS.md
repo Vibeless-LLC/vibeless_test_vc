@@ -18,3 +18,7 @@ No packages in `src/`. Test projects take only what they need from the §2 list,
 
 ### D-5 Core namespace folders (§3.3)
 Core has Addressing, Parsing, Evaluation, Functions, Dependencies and Commands folders, each held by a `.gitkeep` until populated.
+
+### D-6 Addressing grammar and bounds (§4.2, §4.3)
+`Gridline.Core.Addressing` holds `GridBounds` (public consts MaxColumns 702 = A..ZZ, MaxRows 100000), `ColumnName` (letters<->number), `CellAddress` (validated, canonical uppercase no-$ `ToString`), `CellReference` (keeps `$` flags for formulas) and `CellRange` (normalised top-left:bottom-right, so `B3:A1` becomes `A1:B3`). It depends on no other Core namespace. `TryParse` reports failure; `Parse` throws `ArgumentException`; constructors throw `ArgumentOutOfRangeException` for out-of-bounds values. Parsing is case-insensitive, ASCII only, and rejects any whitespace, null, empty, a lone `$`, `A0`, `AAA1`, rows over 100000.
+Choice: a row with a leading zero such as `A01` is rejected (matches Excel and keeps one canonical spelling). `CellAddress.TryParse` and `CellRange.TryParse` accept `$` markers and discard them; use `CellReference` when the flags matter.
