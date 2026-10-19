@@ -31,3 +31,10 @@ Choice: a row with a leading zero such as `A01` is rejected (matches Excel and k
 
 ### D-9 Canonical value strings (§8.3)
 `ToCanonicalString`: Blank `BLANK`; Number `N:` + `ToString("R", InvariantCulture)` (-0 prints `N:0` via normalisation); Text `T:` + text with only backslash, TAB, LF and CR escaped (as `\\`, `\t`, `\n`, `\r`); Boolean `B:TRUE`/`B:FALSE`; Error `E:` + code. `ToString()` returns the same form.
+
+### D-10 Cell input interpretation (§4.3)
+`CellInputInterpreter.Interpret` (root namespace `Gridline.Core`, no Parsing/Evaluation dependency) applies the rules in order, first match wins: empty -> Blank; leading `=` -> Formula (`FormulaText` is the rest; a lone `=` is a Formula with empty text, which the parser later turns into `#PARSE!`); leading `'` -> Text minus that one apostrophe; case-insensitive whole-string TRUE/FALSE -> Boolean (no trimming, so `TRUE ` is text); number grammar -> Number; otherwise verbatim Text (no trimming, so ` 5` is text). Result is `CellInputResult(Kind, Value, FormulaText)`.
+Choice: a lone `'` yields Text `""` (not Blank), so the cell stays a text cell. `MaxInputLength = 32767` UTF-16 units lives on `CellInputInterpreter`; longer input throws ArgumentException, null throws ArgumentNullException.
+
+### D-11 Number grammar (§4.3, §6.2)
+`NumberGrammar.TryParse(ReadOnlySpan<char>, out double)` is a hand-written span matcher for `^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?%?$`, no allocation or regex. Choice: `\d` means ASCII 0-9 only (non-ASCII digits are text), since the engine is culture-invariant. Value parsed with `double.TryParse(NumberStyles.Float, InvariantCulture)`, trailing `%` divides by 100, -0 normalised to 0, and a non-finite result (`1e999`) is not a number so the input becomes Text. Only one `%` is allowed (`5%%` is text). No trimming here; §6.2 coercion callers trim U+0020 first.
