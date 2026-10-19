@@ -62,7 +62,7 @@ public sealed class BuiltInFunctionTable : IFunctionResolver
     {
         var builder = new Builder();
         MathFunctions.Register(builder); // §7.1
-        // Task 9: LogicFunctions.Register(builder);
+        LogicFunctions.Register(builder); // §7.2
         // Task 10: TextFunctions.Register(builder);
         return builder.Build();
     }
