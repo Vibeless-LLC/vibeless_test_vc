@@ -16,7 +16,7 @@ public sealed class CsvFormatTests : IDisposable
     }
 
     private static Workbook Imp(string text, char d = ',') => CsvFormat.Import(Encoding.UTF8.GetBytes(text), d);
-    private static string Exp(Workbook wb, char d = ',') => Encoding.UTF8.GetString(CsvFormat.Export(wb, d)).TrimStart('﻿');
+    private static string Exp(Workbook wb, char d = ',') => Encoding.UTF8.GetString(CsvFormat.Export(wb, d)).TrimStart('\uFEFF');
     private static byte[] Cat(params byte[][] parts) => parts.SelectMany(p => p).ToArray();
 
     // ---- encoding detection ----
@@ -209,6 +209,34 @@ public sealed class CsvFormatTests : IDisposable
     }
 
     [Fact]
+    public void RecordLimit_IsEnforcedWhileParsing_SoAHugeFileStopsAtRecord100001()
+    {
+        // 1,000,000 records, then an unterminated quoted field. Parsing everything first would report the unterminated
+        // quote; stopping at record 100,001 (§8.5, M-4) reports the record limit and never reaches it.
+        var text = new StringBuilder(2_000_010);
+        for (int i = 0; i < 1_000_000; i++) text.Append("1\n");
+        text.Append("\"never closed");
+        var ex = Assert.Throws<GridlineFormatException>(() => Imp(text.ToString()));
+        Assert.Contains("more than 100000 records", ex.Message);
+    }
+
+    [Fact]
+    public void FieldLimit_IsEnforcedWhileParsing_SoAHugeRecordStopsAtField703()
+    {
+        string wide = string.Join(",", Enumerable.Repeat("1", 50_000)) + ",\"never closed";
+        var ex = Assert.Throws<GridlineFormatException>(() => Imp("a\n" + wide));
+        Assert.Contains("Record 2 has more than 702 fields", ex.Message);
+    }
+
+    [Fact]
+    public void Limits_AreCheckedBeforeAnUnterminatedQuoteBeyondThem_ButNotWithinThem()
+    {
+        string ok = string.Join("\n", Enumerable.Repeat("1", 99_999));
+        var ex = Assert.Throws<GridlineFormatException>(() => Imp(ok + "\n\"open"));
+        Assert.Contains("not terminated", ex.Message); // record 100,000 is within the limit, so it is parsed
+    }
+
+    [Fact]
     public void InputLength_ExactBoundaryPasses_OneOverFails()
     {
         string ok = new('x', 32_767);
@@ -262,6 +290,17 @@ public sealed class CsvFormatTests : IDisposable
     }
 
     [Fact]
+    public void Export_ErrorValues_AreTheirCodes()
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", "=1+\"x\"");
+        wb.SetCell("B1", "=NOSUCH(1)");
+        wb.SetCell("C1", "=Undefined_Name");
+        wb.SetCell("D1", "=MATCH(9,E1:E2,0)");
+        Assert.Equal("#VALUE!,#NAME?,#NAME?,#N/A\r\n", Exp(wb));
+    }
+
+    [Fact]
     public void Export_FormulasAreExportedAsValues()
     {
         var wb = new Workbook();
@@ -285,6 +324,10 @@ public sealed class CsvFormatTests : IDisposable
     [InlineData("in side", false)]
     [InlineData("semi;colon", false)]
     [InlineData("tab\there", false)]
+    [InlineData("\tlead tab", false)]
+    [InlineData("trail tab\t", false)]
+    [InlineData(" lead nbsp", false)]
+    [InlineData("trail nbsp ", false)]
     [InlineData("it's", false)]
     [InlineData("plain", false)]
     public void Export_QuotesIffATriggerIsPresent(string text, bool quoted)
@@ -350,7 +393,7 @@ public sealed class CsvFormatTests : IDisposable
         var wb = new Workbook();
         wb.SetCell("A1", "new");
         CsvFormat.ExportToPath(wb, path, ';');
-        Assert.Equal("new\r\n", Encoding.UTF8.GetString(File.ReadAllBytes(path)).TrimStart('﻿'));
+        Assert.Equal("new\r\n", Encoding.UTF8.GetString(File.ReadAllBytes(path)).TrimStart('\uFEFF'));
 
         string dirTarget = Path.Combine(_dir, "sub");
         Directory.CreateDirectory(dirTarget);

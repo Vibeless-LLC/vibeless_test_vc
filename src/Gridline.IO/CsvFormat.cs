@@ -28,16 +28,13 @@ public static class CsvFormat
     public static Workbook Import(ReadOnlySpan<byte> bytes, char delimiter = ',')
     {
         DelimitedTextParser.ValidateDelimiter(delimiter);
-        var records = DelimitedTextParser.Parse(Decode(bytes), delimiter);
-        if (records.Count > MaxRecords)
-            throw new GridlineFormatException($"The file has {records.Count} records; the limit is {MaxRecords}.");
+        // The record and field limits are enforced while parsing, so an oversized file stops at record 100,001 or field
+        // 703 instead of materializing every record first (§8.5, resource bound).
+        var records = DelimitedTextParser.Parse(Decode(bytes), delimiter, MaxRecords, MaxFields);
         for (int i = 0; i < records.Count; i++)
         {
-            var fields = records[i];
-            if (fields.Count > MaxFields)
-                throw new GridlineFormatException($"Record {i + 1} has {fields.Count} fields; the limit is {MaxFields}.");
-            foreach (var field in fields)
-                if (DelimitedTextMapping.ToCellInput(field).Length > Workbook.MaxInputLength)
+            foreach (var field in records[i])
+                if (DelimitedTextMapping.StoredLength(field) > Workbook.MaxInputLength)
                     throw new GridlineFormatException(
                         $"Record {i + 1}: a field is longer than {Workbook.MaxInputLength} UTF-16 code units once stored.");
         }
@@ -68,7 +65,7 @@ public static class CsvFormat
         int maxColumn = 0;
         for (int i = 0; i < used.Count; i++)
         {
-            CellAddress.TryParse(used[i], out var a);
+            var a = CellAddress.Parse(used[i]); // GetUsedAddresses gives canonical addresses
             cells[i] = (a.Row, a.Column, workbook.GetValue(used[i]));
             if (a.Column > maxColumn) maxColumn = a.Column;
         }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Gridline.IO;
@@ -25,10 +26,19 @@ public static class DelimitedTextParser
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
     /// <exception cref="ArgumentException">The delimiter is <c>"</c>, CR or LF.</exception>
     /// <exception cref="GridlineFormatException">A quoted field is not terminated before the end of the text.</exception>
-    public static IReadOnlyList<IReadOnlyList<string>> Parse(string text, char delimiter)
+    public static IReadOnlyList<IReadOnlyList<string>> Parse(string text, char delimiter) =>
+        Parse(text, delimiter, int.MaxValue, int.MaxValue);
+
+    /// <summary>As <see cref="Parse(string, char)"/>, but enforces the limits while parsing (CSV import, §8.5): it stops
+    /// and throws as soon as record <paramref name="maxRecords"/> + 1 begins or a record reaches field
+    /// <paramref name="maxFields"/> + 1, so an oversized input costs no more than the limits allow beyond the text itself.</summary>
+    /// <exception cref="GridlineFormatException">A quoted field is not terminated, or a limit is exceeded.</exception>
+    internal static IReadOnlyList<IReadOnlyList<string>> Parse(string text, char delimiter, int maxRecords, int maxFields)
     {
         ArgumentNullException.ThrowIfNull(text);
         ValidateDelimiter(delimiter);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxRecords, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxFields, 1);
 
         var records = new List<IReadOnlyList<string>>();
         var fields = new List<string>();
@@ -55,21 +65,32 @@ public static class DelimitedTextParser
             // Unquoted characters (or the remainder after a closing quote) up to the delimiter or a terminator.
             while (i < n && text[i] != delimiter && text[i] != '\r' && text[i] != '\n') field.Append(text[i++]);
 
-            fields.Add(field.ToString());
+            AddField(field.ToString());
             field.Clear();
             if (i >= n) break; // end of text ends the last record
             char end = text[i++];
             if (end == delimiter)
             {
-                if (i >= n) fields.Add(""); // a trailing delimiter ends with an empty field
+                if (i >= n) AddField(""); // a trailing delimiter ends with an empty field
                 continue;
             }
             if (end == '\r' && i < n && text[i] == '\n') i++; // CRLF is one terminator
             records.Add(fields.ToArray());
             fields.Clear();
             record++;
+            if (records.Count == maxRecords && i < n) // a final terminator starts no record; more text does
+                throw new GridlineFormatException(string.Create(CultureInfo.InvariantCulture,
+                    $"The file has more than {maxRecords} records; the limit is {maxRecords}."));
         }
         if (fields.Count > 0) records.Add(fields.ToArray()); // the last record had no terminator
         return records;
+
+        void AddField(string value)
+        {
+            if (fields.Count == maxFields)
+                throw new GridlineFormatException(string.Create(CultureInfo.InvariantCulture,
+                    $"Record {record} has more than {maxFields} fields; the limit is {maxFields}."));
+            fields.Add(value);
+        }
     }
 }
