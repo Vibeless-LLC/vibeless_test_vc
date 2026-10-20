@@ -64,16 +64,35 @@ public class QualifiedReferenceTests
     public void LongNumberRuns_StillTokenizeInLinearTime()
     {
         // Each token start inside a [A-Za-z0-9_.] run reuses the run's end, so "1.2.3..." is not rescanned per token.
-        string dotted = string.Concat(Enumerable.Repeat("1.", 16383)) + "1";
-        string words = string.Concat(Enumerable.Repeat("a.", 16383));
-        Tokenizer.Tokenize(dotted); // warm up the JIT
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var r1 = Tokenizer.Tokenize(dotted);
-        var r2 = Tokenizer.Tokenize(words);
-        sw.Stop();
-        Assert.True(r1.Success);
-        Assert.True(r2.Success);
-        Assert.True(sw.ElapsedMilliseconds < 150, $"took {sw.ElapsedMilliseconds} ms");
+        // Robust against slow or noisy machines: compare the best-of-5 time for n and 4n runs. Linear growth is ~4x; the
+        // O(n²) regression this guards against is ~16x, so a bound of 9x (plus a small absolute allowance for timer
+        // granularity and scheduling noise) separates them without depending on absolute speed. At n = 16,384 the quadratic
+        // tokenizer measured 206 ms for n and 3,177 ms for 4n (bound 1,874 ms); the linear one takes ~1 ms and ~5 ms.
+        const int n = 16384;
+        foreach (string unit in new[] { "1.", "a." })
+        {
+            string small = string.Concat(Enumerable.Repeat(unit, n)) + "1";
+            string large = string.Concat(Enumerable.Repeat(unit, 4 * n)) + "1";
+            Assert.True(Tokenizer.Tokenize(small).Success); // also warms up the JIT
+            Assert.True(Tokenizer.Tokenize(large).Success);
+            double tSmall = BestOfFive(small), tLarge = BestOfFive(large);
+            Assert.True(tLarge < 9 * tSmall + 20.0, $"'{unit}' runs: n took {tSmall:F2} ms, 4n took {tLarge:F2} ms (quadratic growth)");
+        }
+
+        static double BestOfFive(string text)
+        {
+            double best = double.MaxValue;
+            for (int i = 0; i < 5; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Tokenizer.Tokenize(text);
+                sw.Stop();
+                best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+            }
+            return best;
+        }
     }
 
     // ---- Parser and AST ----
