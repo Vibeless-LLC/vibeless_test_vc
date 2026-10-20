@@ -18,6 +18,14 @@ public static class ErrorCodes
 
     private static readonly FrozenSet<string> Known = All.ToFrozenSet(StringComparer.Ordinal);
 
+    private static readonly FrozenSet<string>.AlternateLookup<ReadOnlySpan<char>> KnownSpans = Known.GetAlternateLookup<ReadOnlySpan<char>>();
+
+    /// <summary>Length of the longest code (<c>#DIV/0!</c>, <c>#PARSE!</c>, <c>#VALUE!</c>: 7).</summary>
+    internal static readonly int MaxLength = All.Max(c => c.Length);
+
+    /// <summary>Span form of <see cref="IsKnown(string?)"/>; allocation-free.</summary>
+    internal static bool IsKnown(ReadOnlySpan<char> code) => code.Length <= MaxLength && KnownSpans.Contains(code);
+
     /// <summary>True when <paramref name="code"/> is exactly one of the defined error codes.</summary>
     public static bool IsKnown(string? code) => code is not null && Known.Contains(code);
 }

@@ -163,6 +163,39 @@ public class TokenizerTests
     [InlineData("#DIV/2")]
     public void UnknownErrorLiteralBeforeDivideIsStillTokenizerError(string src) => Fails(src, 0);
 
+    // Security review (D-33): the '/' backtrack looks at most ErrorCodes.MaxLength characters and allocates nothing,
+    // so a maximum-length '#' + '/' run is linear, not O(n^2).
+    [Fact]
+    public void LongErrorLiteralRuns_TokenizeInLinearTime()
+    {
+        string slashes = "#" + new string('/', 32766);
+        string naTail = "#N/A" + new string('/', 32763);
+        string mixed = "#" + string.Concat(Enumerable.Repeat("A/", 16383));
+        Tokenizer.Tokenize(slashes); // warm up the JIT
+        Tokenizer.Tokenize(naTail);
+        Tokenizer.Tokenize(mixed);
+
+        long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var r1 = Tokenizer.Tokenize(slashes);
+        var r2 = Tokenizer.Tokenize(naTail);
+        var r3 = Tokenizer.Tokenize(mixed);
+        sw.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
+
+        Assert.False(r1.Success);
+        Assert.Equal(0, r1.ErrorPosition);
+        Assert.True(r1.ErrorMessage.Length < 100, "the error message echoes a clipped run");
+        Assert.True(r2.Success);
+        Assert.Equal(TokenKind.Error, r2.Tokens[0].Kind);
+        Assert.Equal("#N/A", r2.Tokens[0].Text);
+        Assert.Equal(32763, r2.Tokens.Count(t => t.Kind == TokenKind.Slash));
+        Assert.False(r3.Success);
+        // Linear: the token list and a few strings (a few MB). The old per-k substring backtrack allocated about 1 GB.
+        Assert.True(allocated < 16 * 1024 * 1024, $"allocated {allocated} bytes");
+        Assert.True(sw.ElapsedMilliseconds < 100, $"took {sw.ElapsedMilliseconds} ms");
+    }
+
     [Fact]
     public void StringsAndDoubledQuotes()
     {

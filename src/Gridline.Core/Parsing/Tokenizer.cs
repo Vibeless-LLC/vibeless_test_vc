@@ -4,7 +4,11 @@ using Gridline.Core.Addressing;
 
 namespace Gridline.Core.Parsing;
 
-/// <summary>Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='.</summary>
+/// <summary>
+/// Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='. An error literal is the run of
+/// '#' plus letters, digits, '/', '!' and '?', except that a known code followed by '/' ends there and the '/' is the
+/// divide operator (D-12, D-33), so the whitespace-free §5.5 form "#N/A/2" re-parses.
+/// </summary>
 public static class Tokenizer
 {
     public static TokenizeResult Tokenize(string formulaText)
@@ -51,18 +55,23 @@ public static class Tokenizer
             {
                 i++;
                 while (i < s.Length && (IsAsciiLetter(s[i]) || IsDigit(s[i]) || s[i] is '/' or '!' or '?')) i++;
-                string lex = s.Substring(start, i - start);
                 // §5.5 printing emits no whitespace, so "#N/A / 2" prints as "#N/A/2": a '/' may end a literal and be the
-                // divide operator. Take the longest known code that ends just before a '/' when the whole run is unknown.
-                if (!ErrorCodes.IsKnown(lex))
+                // divide operator (D-33). When the whole run is unknown, take the longest known code that ends just before a
+                // '/' in the run. Only the first ErrorCodes.MaxLength characters can hold one, so this is O(1) per token and
+                // allocation-free; a 32,767-character "#////..." run stays linear.
+                int end = i;
+                if (!ErrorCodes.IsKnown(s.AsSpan(start, end - start)))
                 {
-                    for (int k = lex.Length - 1; k > 0; k--)
+                    for (int k = Math.Min(end - start - 1, ErrorCodes.MaxLength); k > 0; k--)
                     {
-                        if (lex[k] == '/' && ErrorCodes.IsKnown(lex[..k])) { lex = lex[..k]; i = start + k; break; }
+                        if (s[start + k] == '/' && ErrorCodes.IsKnown(s.AsSpan(start, k))) { end = start + k; break; }
                     }
                 }
                 // R52 (§5.1 "written exactly"): case-sensitive, so #n/a is a tokenizer error (#PARSE!).
-                if (!ErrorCodes.IsKnown(lex)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
+                if (!ErrorCodes.IsKnown(s.AsSpan(start, end - start)))
+                    return TokenizeResult.Fail($"Unknown error literal '{Clip(s, start, i - start)}'.", start);
+                i = end;
+                string lex = s.Substring(start, end - start);
                 tokens.Add(new Token(TokenKind.Error, start, lex, Text: lex));
             }
             else if (c == '$' || IsAsciiLetter(c))
@@ -164,4 +173,8 @@ public static class Tokenizer
 
     private static bool IsDigit(char c) => c >= '0' && c <= '9';
     private static bool IsAsciiLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+    /// <summary>The run for an error message, cut to 32 characters so a huge bad literal does not echo in full.</summary>
+    private static string Clip(string s, int start, int length)
+        => length <= 32 ? s.Substring(start, length) : string.Concat(s.AsSpan(start, 32), "...");
 }
