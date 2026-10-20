@@ -43,9 +43,30 @@ public partial class MainWindow : Window, IEditTextHistory
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName != nameof(MainViewModel.IsReady) || !_viewModel.IsReady) return;
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => Keyboard.Focus(SheetGrid));
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, FocusGridAfterStartup);
         };
     }
+
+    /// <summary>The queued startup focus (D-49). It may run inside another modal's nested message loop (an error message
+    /// box, a dialog): then this window is not active and the focus must not be taken from the modal. In that case the
+    /// grid is focused when this window is next activated, unless something in it has keyboard focus by then.</summary>
+    private void FocusGridAfterStartup()
+    {
+        if (CanTakeStartupFocus())
+        {
+            Keyboard.Focus(SheetGrid);
+            return;
+        }
+        void OnActivatedOnce(object? sender, EventArgs e)
+        {
+            Activated -= OnActivatedOnce;
+            if (CanTakeStartupFocus() && !IsKeyboardFocusWithin) Keyboard.Focus(SheetGrid);
+        }
+        Activated += OnActivatedOnce;
+    }
+
+    private bool CanTakeStartupFocus() =>
+        IsActive && _viewModel.IsReady && !OwnedWindows.OfType<Window>().Any(w => w.IsVisible);
 
     /// <summary>§11.5: the close button counts as Exit, so a dirty workbook prompts and Cancel (or a failed or cancelled
     /// Save) keeps the window open. Exit itself prompts before raising CloseRequested.</summary>

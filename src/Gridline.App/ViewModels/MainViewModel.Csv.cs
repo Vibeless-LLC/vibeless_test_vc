@@ -27,7 +27,7 @@ public sealed partial class MainViewModel
         {
             imported = CsvFormat.ImportFromPath(path, CsvDelimiter);
         }
-        catch (Exception ex) when (ex is GridlineFormatException or GridlineIOException or ArgumentException or NotSupportedException or IOException)
+        catch (Exception ex) when (FileErrors.IsFileError(ex))
         {
             _dialogs.ShowError("Gridline", $"Cannot import '{path}'.{Environment.NewLine}{ex.Message}");
             return false;
@@ -47,7 +47,7 @@ public sealed partial class MainViewModel
         {
             CsvFormat.ExportToPath(_workbook, path, CsvDelimiter);
         }
-        catch (Exception ex) when (ex is GridlineIOException or ArgumentException or NotSupportedException or IOException)
+        catch (Exception ex) when (FileErrors.IsFileError(ex))
         {
             _dialogs.ShowError("Gridline", $"Cannot export '{path}'.{Environment.NewLine}{ex.Message}");
             return false;

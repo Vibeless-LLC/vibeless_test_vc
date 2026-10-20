@@ -41,7 +41,7 @@ public sealed class RecoveryViewModel : ObservableObject
         Workbook? workbook = null;
         string? error = null;
         try { workbook = GridlineFile.LoadFromPath(file.Path); }
-        catch (Exception ex) when (ex is GridlineFormatException or GridlineIOException or ArgumentException or NotSupportedException or System.IO.IOException)
+        catch (Exception ex) when (FileErrors.IsFileError(ex))
         {
             error = ex.Message;
         }

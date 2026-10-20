@@ -22,11 +22,12 @@ public sealed partial class MainViewModel : IGridHeaderSource
     public void SelectHeaders(HeaderAxis axis, int index, int activeOther, bool extend) =>
         SetSelection(HeaderCell(axis, index, activeOther), extend, axis);
 
-    public void PrepareHeaderMenu(HeaderAxis axis, int index, int activeOther)
+    public bool PrepareHeaderMenu(HeaderAxis axis, int index, int activeOther)
     {
-        if (!IsReady) return;
-        if (IsInsideWholeSelection(axis, index)) return; // R75: the menu acts on the current selection
+        if (!IsReady) return false;
+        if (IsInsideWholeSelection(axis, index)) return true; // R75: the menu acts on the current selection
         SelectHeaders(axis, index, activeOther, extend: false);
+        return IsInsideWholeSelection(axis, index); // false when the selection did not move (an edit is still open)
     }
 
     /// <summary>True when the selection is a whole-row (or whole-column) selection on <paramref name="axis"/> that

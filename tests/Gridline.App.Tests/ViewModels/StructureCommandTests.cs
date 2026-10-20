@@ -106,6 +106,19 @@ public sealed class StructureCommandTests
         Assert.Equal(CellRange.Parse("B1:B100000"), _vm.Selection);
     }
 
+    [Fact]
+    public void PrepareHeaderMenu_ReportsWhetherTheSelectionContainsTheHeader_FalseWhenARefusedEditKeepsIt()
+    {
+        Assert.True(_vm.PrepareHeaderMenu(HeaderAxis.Rows, 3, 1));
+        Assert.True(_vm.PrepareHeaderMenu(HeaderAxis.Rows, 3, 1)); // already inside
+
+        _vm.SelectCell(At("B2"), extend: false);
+        _vm.FormulaBarText = new string('x', Workbook.MaxInputLength + 1); // an edit whose commit is refused
+        Assert.False(_vm.PrepareHeaderMenu(HeaderAxis.Columns, 4, 1)); // the menu must not open on a stale selection
+        Assert.Equal(CellRange.Parse("B2:B2"), _vm.Selection);
+        Assert.True(_vm.IsEditing);
+    }
+
     // ---- Insert and Delete ----
 
     [Fact]

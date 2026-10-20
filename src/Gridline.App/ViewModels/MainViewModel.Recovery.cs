@@ -88,11 +88,18 @@ public sealed partial class MainViewModel
         string? fileArgument = _pendingFileArgument;
         _pendingFileArgument = null;
         if (_sessionEnded) return false; // the window was closed before the dialog could be shown
-        bool restored = OfferRecovery(files);
-        if (!restored && fileArgument is not null) TryLoad(fileArgument);
-        _autosaveTimer?.Start();
-        IsReady = true;
-        return restored;
+        try
+        {
+            bool restored = OfferRecovery(files);
+            if (!restored && fileArgument is not null) TryLoad(fileArgument);
+            return restored;
+        }
+        finally
+        {
+            // Even when the dialog or a restore throws, the window must not stay disabled for good (D-49).
+            _autosaveTimer?.Start();
+            IsReady = true;
+        }
     }
 
     /// <summary>One autosave tick (R48): while dirty, writes the recovery file; a failure is ignored and the next tick

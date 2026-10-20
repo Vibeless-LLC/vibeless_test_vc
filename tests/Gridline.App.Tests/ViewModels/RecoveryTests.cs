@@ -369,6 +369,25 @@ public sealed class RecoveryTests : IDisposable
         Assert.Equal("", vm.Workbook.GetInput("A1"));
         Assert.Equal("Gridline - Untitled *", vm.Title);
         Assert.Equal(planted.SessionId, vm.SessionId);
+        Assert.True(vm.IsReady); // a restore also ends the startup gate (D-49)
+        Assert.True(vm.NewCommand.CanExecute(null));
+        Assert.True(_timer.Running);
+    }
+
+    [Fact]
+    public void CompleteStartup_WhenTheDialogThrows_StillEndsTheStartupGate()
+    {
+        PlantRecovery("A1", "1", TimeSpan.Zero);
+        _dialogs.OnRecovery = _ => throw new InvalidOperationException("dialog failed");
+        var vm = NewViewModel();
+        Assert.True(vm.BeginStartup(null));
+        Assert.False(vm.IsReady);
+
+        Assert.Throws<InvalidOperationException>(() => vm.CompleteStartup());
+
+        Assert.True(vm.IsReady); // the window is not left disabled for good
+        Assert.True(vm.NewCommand.CanExecute(null));
+        Assert.True(_timer.Running);
     }
 
     [Fact]

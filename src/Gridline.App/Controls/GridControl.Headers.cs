@@ -36,8 +36,9 @@ public sealed partial class GridControl
         if (_editor.IsAncestorOf(e.OriginalSource as DependencyObject ?? this)) return;
         Focus(); // commits an open edit (OnGotKeyboardFocus)
         if (HeaderSource is not { } headers || HeaderAt(e.GetPosition(this)) is not { } header) return;
-        headers.PrepareHeaderMenu(header.Axis, header.Index, ActiveOther(header.Axis));
-        _menuOnHeader = true;
+        // Only when the selection now contains the clicked header: if Focus() could not commit the open edit, the
+        // selection stays put and the menu must not act on a stale one.
+        _menuOnHeader = headers.PrepareHeaderMenu(header.Axis, header.Index, ActiveOther(header.Axis));
     }
 
     /// <summary>The menu belongs to the headers: a right-click on a cell or the corner opens nothing. Opened from the

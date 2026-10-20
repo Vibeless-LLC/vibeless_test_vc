@@ -21,7 +21,9 @@ public interface IGridHeaderSource
 
     /// <summary>A right-click on a header, before its context menu opens: a header outside the current whole-row or
     /// whole-column selection on that axis is selected first (R75); the menu then acts on that axis.</summary>
-    void PrepareHeaderMenu(HeaderAxis axis, int index, int activeOther);
+    /// <returns>True when the selection is then a whole-row or whole-column selection containing the header, so the menu
+    /// may open; false when the selection could not change (for example a refused edit is still open).</returns>
+    bool PrepareHeaderMenu(HeaderAxis axis, int index, int activeOther);
 
     /// <summary>True when the selection is a whole-row or whole-column header selection the context menu can act on.</summary>
     bool HasHeaderSelection { get; }

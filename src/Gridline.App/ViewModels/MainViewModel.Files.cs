@@ -80,7 +80,7 @@ public sealed partial class MainViewModel
             loaded = GridlineFile.LoadFromPath(path);
             fullPath = Path.GetFullPath(path);
         }
-        catch (Exception ex) when (ex is GridlineFormatException or GridlineIOException or ArgumentException or NotSupportedException or IOException)
+        catch (Exception ex) when (FileErrors.IsFileError(ex))
         {
             _dialogs.ShowError("Gridline", $"Cannot open '{path}'.{Environment.NewLine}{ex.Message}");
             return false;
@@ -99,7 +99,7 @@ public sealed partial class MainViewModel
             fullPath = Path.GetFullPath(path);
             GridlineFile.SaveToPath(_workbook, fullPath);
         }
-        catch (Exception ex) when (ex is GridlineIOException or ArgumentException or NotSupportedException or IOException)
+        catch (Exception ex) when (FileErrors.IsFileError(ex))
         {
             _dialogs.ShowError("Gridline", $"Cannot save '{path}'.{Environment.NewLine}{ex.Message}");
             return false;

@@ -69,6 +69,24 @@ public sealed class CsvCommandTests : IDisposable
     }
 
     [Fact]
+    public void Import_Failure_OnANamedFile_KeepsItsPathAndTitle()
+    {
+        string file = PathOf("named.gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("A1", "1")]), file);
+        Assert.True(_vm.OpenAtStartup(file));
+        Workbook before = _vm.Workbook;
+        _dialogs.OpenCsvPath = WriteCsv("bad.csv", "\"unterminated");
+
+        Assert.False(_vm.ImportCsv());
+
+        Assert.Single(_dialogs.Errors);
+        Assert.Same(before, _vm.Workbook);
+        Assert.Equal(Path.GetFullPath(file), _vm.FilePath);
+        Assert.Equal("Gridline - named.gridline", _vm.Title);
+        Assert.False(_vm.IsDirty);
+    }
+
+    [Fact]
     public void Import_Cancelled_ChangesNothing()
     {
         _vm.Workbook.SetCell("A1", "keep");

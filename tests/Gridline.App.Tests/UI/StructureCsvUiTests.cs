@@ -173,6 +173,43 @@ public sealed class StructureCsvUiTests(ITestOutputHelper output) : IDisposable
         Assert.Equal("Gridline - Untitled *", ui.Window.Title);
     }
 
+    [Fact]
+    public void RightClickInTheInCellEditor_ShowsTheTextBoxEditMenu_NotTheHeaderMenu()
+    {
+        using var app = Launch();
+        Ui ui = Start(app);
+        Keyboard.Type("abc"); // opens the in-cell editor on A1 (§11.4)
+        Retry(() => ui.Window.FindFirstDescendant(cf => cf.ByAutomationId("CellEditor")) is { } editor
+                    && !editor.Properties.IsOffscreen.ValueOrDefault, "the in-cell editor is open");
+
+        RaiseToTop(ui.Window);
+        Mouse.RightClick(GridPoint(ui, 60 + 40, 22 + 11)); // inside A1, where the editor is
+        AutomationElement[] items = [];
+        Retry(() => (items = MenuItemsInProcess(app)).Length >= 3, "the editor's Cut/Copy/Paste menu is shown");
+        _output.WriteLine("editor menu: " + string.Join(", ", items.Select(i => i.Properties.Name.ValueOrDefault)));
+        Assert.Null(FindInProcess(app, "ContextInsert")); // the header menu stays on the headers (R75)
+        Assert.Null(FindInProcess(app, "ContextDelete"));
+
+        Keyboard.Type(VirtualKeyShort.ESCAPE); // closes the menu; the edit is still open
+        Retry(() => MenuItemsInProcess(app).Length == 0, "the editor menu closed");
+        Keyboard.Type(VirtualKeyShort.RETURN);
+        WaitFor(() => ui.SelectionValue.Name, "BLANK"); // Enter committed "abc" to A1 and moved to A2
+        Press(VirtualKeyShort.UP);
+        WaitFor(() => ui.SelectionValue.Name, "T:abc");
+    }
+
+    /// <summary>Items of the app's open context menus: <c>Menu</c> elements under the app's windows, except the main
+    /// menu (the one holding <c>MenuFile</c>).</summary>
+    private static AutomationElement[] MenuItemsInProcess(AppUnderTest app)
+    {
+        var desktop = app.Automation.GetDesktop();
+        return [.. desktop.FindAllChildren(cf => cf.ByProcessId(app.Application.ProcessId))
+            .SelectMany(top => top.FindAllDescendants(cf => cf.ByControlType(ControlType.Menu)))
+            .Select(menu => menu.FindAllChildren(cf => cf.ByControlType(ControlType.MenuItem)))
+            .Where(items => !items.Any(i => i.Properties.AutomationId.ValueOrDefault == "MenuFile")) // not the main menu
+            .SelectMany(items => items)];
+    }
+
     // ---- geometry (GridMetrics: 60-DIP row headers, 22-DIP column header and rows, 80-DIP columns; no scrolling) ----
 
     private static System.Drawing.Point RowHeaderPoint(Ui ui, int row) => GridPoint(ui, 30, 22 + (row - 1) * 22 + 11);
