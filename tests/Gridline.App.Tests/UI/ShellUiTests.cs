@@ -5,6 +5,7 @@ using FlaUI.Core.WindowsAPI;
 using Gridline.Core;
 using Gridline.IO;
 using static Gridline.App.Tests.UI.AppUnderTest;
+using static Gridline.App.Tests.UI.UiInput;
 
 namespace Gridline.App.Tests.UI;
 
@@ -14,28 +15,6 @@ namespace Gridline.App.Tests.UI;
 public class ShellUiTests
 {
     private static readonly string[] TopLevelIds = ["NameBox", "FormulaBar", "Grid", "SelectionValue", "SelectionSum", "MenuFile", "MenuEdit"];
-
-    /// <summary>Navigation keys are sent as extended scan codes. Sent as bare virtual keys they look like numpad keys, and
-    /// with NumLock on Windows injects a Shift release before them, so Shift+arrow would arrive as a plain arrow.</summary>
-    private static ushort ExtendedScanCode(VirtualKeyShort key) => key switch
-    {
-        VirtualKeyShort.UP => 0x48,
-        VirtualKeyShort.DOWN => 0x50,
-        VirtualKeyShort.LEFT => 0x4B,
-        VirtualKeyShort.RIGHT => 0x4D,
-        VirtualKeyShort.HOME => 0x47,
-        VirtualKeyShort.END => 0x4F,
-        _ => throw new ArgumentOutOfRangeException(nameof(key)),
-    };
-
-    private static void Press(VirtualKeyShort key) => Keyboard.TypeScanCode(ExtendedScanCode(key), isExtendedKey: true);
-
-    private static void Chord(VirtualKeyShort modifier, VirtualKeyShort key)
-    {
-        Keyboard.Press(modifier);
-        try { Press(key); }
-        finally { Keyboard.Release(modifier); }
-    }
 
     [Fact]
     public void Launch_HasTitleAndEveryAutomationId_AndArrowsMoveTheActiveCell()
@@ -161,28 +140,5 @@ public class ShellUiTests
             foreach (string id in itemIds) Assert.NotNull(Find(menu, id));
         }
         finally { menu.Collapse(); }
-    }
-
-    /// <summary>Clicks the window's title bar so it is the foreground window and receives the injected keys (SetForeground
-    /// alone is not always honoured when the test host does not own the foreground); WPF restores focus to the grid.</summary>
-    private static void Activate(Window window, AutomationElement grid)
-    {
-        AppUnderTest.RaiseToTop(window); // so the title-bar click lands on this window, not one overlapping it
-        var r = window.BoundingRectangle;
-        Mouse.Click(new System.Drawing.Point(r.Left + r.Width / 2, r.Top + 12));
-        Retry(() => grid.Properties.HasKeyboardFocus.Value, "grid has keyboard focus once the window is active");
-    }
-
-    private static TimeSpan TimeSpanOf(Action action)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        action();
-        return sw.Elapsed;
-    }
-
-    private static void Retry(Func<bool> condition, string what)
-    {
-        var result = FlaUI.Core.Tools.Retry.WhileFalse(condition, UiTimeout, TimeSpan.FromMilliseconds(50), ignoreException: true);
-        Assert.True(result.Result, what);
     }
 }

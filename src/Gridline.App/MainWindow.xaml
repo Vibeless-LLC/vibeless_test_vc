@@ -2,10 +2,12 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Gridline.App.Controls"
+        xmlns:core="clr-namespace:Gridline.Core;assembly=Gridline.Core"
         Title="{Binding Title}"
         Width="1280" Height="800"
         WindowStartupLocation="CenterScreen">
-    <!-- §11.5 shortcuts. A focused TextBox handles Ctrl+Z/Y/C/V itself first (R49). -->
+    <!-- §11.5 shortcuts. A focused TextBox handles Ctrl+Z/Y/C/V itself first; menu Undo/Redo reach the edit box while an
+         edit is open (R49, D-38). -->
     <Window.InputBindings>
         <KeyBinding Modifiers="Ctrl" Key="N" Command="{Binding NewCommand}" />
         <KeyBinding Modifiers="Ctrl" Key="O" Command="{Binding OpenCommand}" />
@@ -35,7 +37,7 @@
                 <Separator />
                 <MenuItem Header="E_xit" Command="{Binding ExitCommand}" AutomationProperties.AutomationId="MenuExit" />
             </MenuItem>
-            <MenuItem Header="_Edit" AutomationProperties.AutomationId="MenuEdit">
+            <MenuItem Header="_Edit" AutomationProperties.AutomationId="MenuEdit" SubmenuOpened="MenuEdit_SubmenuOpened">
                 <MenuItem Header="_Undo" InputGestureText="Ctrl+Z" Command="{Binding UndoCommand}" AutomationProperties.AutomationId="MenuUndo" />
                 <MenuItem Header="_Redo" InputGestureText="Ctrl+Y" Command="{Binding RedoCommand}" AutomationProperties.AutomationId="MenuRedo" />
                 <Separator />
@@ -51,10 +53,13 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <TextBox Grid.Column="0" x:Name="NameBox" AutomationProperties.AutomationId="NameBox" AutomationProperties.Name="Name Box"
-                     Text="{Binding NameBoxText, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center" />
+                     Text="{Binding NameBoxText, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center"
+                     PreviewKeyDown="NameBox_PreviewKeyDown" GotKeyboardFocus="NameBox_GotKeyboardFocus" LostKeyboardFocus="NameBox_LostKeyboardFocus" />
             <TextBlock Grid.Column="1" Text="fx" FontStyle="Italic" Margin="8,0" VerticalAlignment="Center" />
             <TextBox Grid.Column="2" x:Name="FormulaBar" AutomationProperties.AutomationId="FormulaBar" AutomationProperties.Name="Formula Bar"
-                     Text="{Binding FormulaBarText, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center" />
+                     Text="{Binding FormulaBarText, UpdateSourceTrigger=PropertyChanged}" VerticalContentAlignment="Center"
+                     MaxLength="{x:Static core:Workbook.MaxInputLength}"
+                     PreviewKeyDown="FormulaBar_PreviewKeyDown" GotKeyboardFocus="EditBox_GotKeyboardFocus" />
         </Grid>
 
         <ScrollViewer Grid.Row="2" CanContentScroll="True" Focusable="False" IsTabStop="False"

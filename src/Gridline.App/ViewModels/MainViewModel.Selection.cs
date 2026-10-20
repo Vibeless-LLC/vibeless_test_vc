@@ -26,20 +26,6 @@ public sealed partial class MainViewModel : IGridDataSource
     /// <summary>The active cell's canonical address, e.g. <c>B2</c>.</summary>
     public string ActiveAddress => _active.ToString();
 
-    /// <summary>Name box text (§11.4): the active address; editable, navigation on Enter arrives with the editing task.</summary>
-    public string NameBoxText
-    {
-        get => _nameBoxText;
-        set => SetProperty(ref _nameBoxText, value ?? "");
-    }
-
-    /// <summary>Formula bar text (§11.4): the active cell's input; editable, commit on Enter arrives with the editing task.</summary>
-    public string FormulaBarText
-    {
-        get => _formulaBarText;
-        set => SetProperty(ref _formulaBarText, value ?? "");
-    }
-
     /// <summary>§11.7 SelectionValue: the active cell's §8.3 canonical value (<c>N:5</c>, <c>BLANK</c>, ...).</summary>
     public string SelectionValue
     {
@@ -64,8 +50,10 @@ public sealed partial class MainViewModel : IGridDataSource
         SelectCell(new CellAddress(column, row), extend);
     }
 
+    /// <summary>Makes <paramref name="cell"/> active. An open edit is committed to the cell it belongs to first (§11.4, D-38).</summary>
     public void SelectCell(CellAddress cell, bool extend)
     {
+        if (_isEditing && !TryCommit()) return;
         CellAddress anchor = extend ? _anchor : cell;
         if (cell == _active && anchor == _anchor) return;
         _active = cell;
@@ -101,7 +89,7 @@ public sealed partial class MainViewModel : IGridDataSource
     private void RefreshContentDerived()
     {
         string address = _active.ToString();
-        FormulaBarText = _workbook.GetInput(address);
+        if (!_isEditing) SetFormulaBarTextSilently(_workbook.GetInput(address)); // an open edit keeps its pending text
         SelectionValue = _workbook.GetValue(address).ToCanonicalString();
         SelectionSum = SelectionSummary.FormatSum(_workbook, Selection);
     }

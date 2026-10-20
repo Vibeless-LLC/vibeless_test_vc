@@ -29,8 +29,8 @@ public sealed partial class MainViewModel : ObservableObject
         SaveCommand = new RelayCommand(NotYetAvailable, () => false);
         SaveAsCommand = new RelayCommand(NotYetAvailable, () => false);
         ExitCommand = new RelayCommand(Exit);
-        UndoCommand = new RelayCommand(Undo, () => _workbook.CanUndo);
-        RedoCommand = new RelayCommand(Redo, () => _workbook.CanRedo);
+        UndoCommand = new RelayCommand(Undo, CanUndoNow); // R49: the edit box while an edit is open
+        RedoCommand = new RelayCommand(Redo, CanRedoNow);
         // Task 8 (§11.6, §9.4, R46, R47): Copy and Paste through the clipboard.
         CopyCommand = new RelayCommand(NotYetAvailable, () => false);
         PasteCommand = new RelayCommand(NotYetAvailable, () => false);
@@ -87,6 +87,7 @@ public sealed partial class MainViewModel : ObservableObject
     internal void Adopt(Workbook workbook, string? filePath)
     {
         ArgumentNullException.ThrowIfNull(workbook);
+        IsEditing = false; // an open edit belongs to the old workbook
         _workbook.CellsChanged -= OnCellsChanged;
         _workbook = workbook;
         _filePath = filePath;
@@ -107,12 +108,14 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void Undo()
     {
+        if (_isEditing) { EditTextHistory?.Undo(); RaiseUndoRedoCanExecuteChanged(); return; } // R49
         _workbook.Undo();
         RefreshDocumentState();
     }
 
     private void Redo()
     {
+        if (_isEditing) { EditTextHistory?.Redo(); RaiseUndoRedoCanExecuteChanged(); return; } // R49
         _workbook.Redo();
         RefreshDocumentState();
     }
@@ -131,7 +134,6 @@ public sealed partial class MainViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(IsDirty));
-        UndoCommand.RaiseCanExecuteChanged();
-        RedoCommand.RaiseCanExecuteChanged();
+        RaiseUndoRedoCanExecuteChanged();
     }
 }

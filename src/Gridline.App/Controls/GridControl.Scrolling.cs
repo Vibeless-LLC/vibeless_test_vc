@@ -67,6 +67,7 @@ public sealed partial class GridControl : IScrollInfo
     private void OnScrolled()
     {
         ScrollOwner?.InvalidateScrollInfo();
+        InvalidateArrange(); // the in-cell editor moves with its cell
         InvalidateVisual();
     }
 

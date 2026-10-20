@@ -24,23 +24,36 @@ public static class SelectionSummary
     /// strategies visit cells in the same order, so the floating-point result does not depend on the strategy).</summary>
     public static double Sum(Workbook workbook, CellRange selection)
     {
+        double sum = 0;
+        foreach (string address in UsedCellsIn(workbook, selection))
+            sum += NumberOrZero(workbook.GetValue(address));
+        return sum;
+    }
+
+    /// <summary>The canonical addresses of the cells with input inside <paramref name="selection"/>, row-major. The work is
+    /// O(min(area, used cells)) (see <see cref="ProbesSelection"/>), so a whole-sheet selection never walks 70.2 million
+    /// addresses. Used by SelectionSum (R43) and by Delete (§11.4), which clears exactly these cells.</summary>
+    public static List<string> UsedCellsIn(Workbook workbook, CellRange selection)
+    {
         ArgumentNullException.ThrowIfNull(workbook);
         long area = selection.CellCount;
         IReadOnlyList<string>? used = area <= ProbeLimit ? null : workbook.GetUsedAddresses();
-        double sum = 0;
+        var result = new List<string>();
         if (ProbesSelection(area, used?.Count ?? 0))
         {
             for (int row = selection.TopLeft.Row; row <= selection.BottomRight.Row; row++)
                 for (int column = selection.TopLeft.Column; column <= selection.BottomRight.Column; column++)
-                    sum += NumberOrZero(workbook.GetValue(new CellAddress(column, row).ToString()));
-            return sum;
+                {
+                    string address = new CellAddress(column, row).ToString();
+                    if (workbook.GetInput(address).Length != 0) result.Add(address);
+                }
+            return result;
         }
         foreach (string address in used!) // row-major (§9.1)
         {
-            if (selection.Contains(CellAddress.Parse(address)))
-                sum += NumberOrZero(workbook.GetValue(address));
+            if (selection.Contains(CellAddress.Parse(address))) result.Add(address);
         }
-        return sum;
+        return result;
     }
 
     private static double NumberOrZero(CellValue v) => v.Kind == ValueKind.Number ? v.Number : 0;

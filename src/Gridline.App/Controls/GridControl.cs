@@ -23,6 +23,7 @@ public sealed partial class GridControl : FrameworkElement
         FocusVisualStyle = null;
         ClipToBounds = true;
         SnapsToDevicePixels = true;
+        InitializeEditor();
     }
 
     /// <summary>The data and selection the grid shows.</summary>
@@ -53,13 +54,16 @@ public sealed partial class GridControl : FrameworkElement
         {
             old.ContentChanged -= grid.OnContentChanged;
             old.SelectionChanged -= grid.OnSelectionChanged;
+            if (old is IGridEditSource oldEdit) oldEdit.EditStateChanged -= grid.OnEditStateChanged;
         }
         if (e.NewValue is IGridDataSource src)
         {
             src.ContentChanged += grid.OnContentChanged;
             src.SelectionChanged += grid.OnSelectionChanged;
+            if (src is IGridEditSource edit) edit.EditStateChanged += grid.OnEditStateChanged;
             grid.ScrollIntoView(src.ActiveCell);
         }
+        grid.SyncEditor();
     }
 
     private void OnContentChanged(object? sender, EventArgs e) => InvalidateVisual();
@@ -67,18 +71,24 @@ public sealed partial class GridControl : FrameworkElement
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
         if (Source is { } src) ScrollIntoView(src.ActiveCell);
+        InvalidateArrange(); // the in-cell editor follows the active cell
         InvalidateVisual();
     }
 
     protected override AutomationPeer OnCreateAutomationPeer() => new GridAutomationPeer(this);
 
-    protected override Size MeasureOverride(Size availableSize) => new(
-        double.IsInfinity(availableSize.Width) ? 800 : availableSize.Width,
-        double.IsInfinity(availableSize.Height) ? 600 : availableSize.Height);
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        _editor.Measure(new Size(double.PositiveInfinity, GridMetrics.RowHeight - 2)); // desired width = text width
+        return new(
+            double.IsInfinity(availableSize.Width) ? 800 : availableSize.Width,
+            double.IsInfinity(availableSize.Height) ? 600 : availableSize.Height);
+    }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
         UpdateViewport(finalSize);
+        ArrangeEditor(finalSize);
         return finalSize;
     }
 
