@@ -28,7 +28,11 @@ public class WorkbookTests
     [InlineData("=A1", "E:#CIRC!")]
     [InlineData("=1+", "E:#PARSE!")]
     [InlineData("=1e999", "E:#NUM!")]                // R53
-    [InlineData("=#n/a", "E:#PARSE!")]               // R52
+    [InlineData("=#n/a", "E:#N/A")]                  // R56
+    [InlineData("=#div/0!", "E:#DIV/0!")]            // R56
+    [InlineData("=#n/a/2", "E:#N/A")]                // R56: '/' after a lower-case code is divide
+    [InlineData("=#N/AX", "E:#PARSE!")]
+    [InlineData("=#FOO!", "E:#PARSE!")]
     [InlineData("=#N/A", "E:#N/A")]
     [InlineData("=SUM(1,1e999)", "E:#NUM!")]         // R53
     [InlineData("=IF(TRUE,1,1e999)", "N:1")]         // R53: untaken branch is never evaluated

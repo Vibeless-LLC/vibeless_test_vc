@@ -58,21 +58,20 @@ public static class Tokenizer
                 // §5.5 printing emits no whitespace, so "#N/A / 2" prints as "#N/A/2": a '/' may end a literal and be the
                 // divide operator (D-33). When the whole run is unknown, take the longest known code that ends just before a
                 // '/' in the run. Only the first ErrorCodes.MaxLength characters can hold one, so this is O(1) per token and
-                // allocation-free; a 32,767-character "#////..." run stays linear.
+                // allocation-free; a 32,767-character "#////..." run stays linear. R56 (§5.1, supersedes R52): codes match
+                // ignoring case and the token carries the canonical upper-case code, so "#n/a/2" is #N/A, Slash, 2.
                 int end = i;
-                if (!ErrorCodes.IsKnown(s.AsSpan(start, end - start)))
+                if (!ErrorCodes.TryGetCanonical(s.AsSpan(start, end - start), out string code))
                 {
                     for (int k = Math.Min(end - start - 1, ErrorCodes.MaxLength); k > 0; k--)
                     {
-                        if (s[start + k] == '/' && ErrorCodes.IsKnown(s.AsSpan(start, k))) { end = start + k; break; }
+                        if (s[start + k] == '/' && ErrorCodes.TryGetCanonical(s.AsSpan(start, k), out code)) { end = start + k; break; }
                     }
+                    if (end == i)
+                        return TokenizeResult.Fail($"Unknown error literal '{Clip(s, start, i - start)}'.", start);
                 }
-                // R52 (§5.1 "written exactly"): case-sensitive, so #n/a is a tokenizer error (#PARSE!).
-                if (!ErrorCodes.IsKnown(s.AsSpan(start, end - start)))
-                    return TokenizeResult.Fail($"Unknown error literal '{Clip(s, start, i - start)}'.", start);
                 i = end;
-                string lex = s.Substring(start, end - start);
-                tokens.Add(new Token(TokenKind.Error, start, lex, Text: lex));
+                tokens.Add(new Token(TokenKind.Error, start, s.Substring(start, end - start), Text: code));
             }
             else if (c == '$' || IsAsciiLetter(c))
             {

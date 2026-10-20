@@ -16,12 +16,31 @@ public class CellValueTests
         Assert.Equal("#PARSE!", ErrorCodes.Parse);
     }
 
-    // R52 (§5.1 "written exactly"): membership is case-sensitive.
+    // The public membership test is exact (CellValue.FromError takes canonical codes); formula literals are matched
+    // ignoring case by the tokenizer (R56, ErrorCodes.TryGetCanonical) and normalised before they get here.
     [Theory]
     [InlineData("#div/0!")]
     [InlineData("#N/a")]
     [InlineData("#Parse!")]
     public void ErrorCodes_IsKnown_IsCaseSensitive(string input) => Assert.False(ErrorCodes.IsKnown(input));
+
+    [Theory]
+    [InlineData("#div/0!", "#DIV/0!")]
+    [InlineData("#N/a", "#N/A")]
+    [InlineData("#Parse!", "#PARSE!")]
+    [InlineData("#NAME?", "#NAME?")]
+    public void ErrorCodes_TryGetCanonical_IgnoresCase_R56(string input, string expected)
+    {
+        Assert.True(ErrorCodes.TryGetCanonical(input, out string code));
+        Assert.Equal(expected, code);
+    }
+
+    [Theory]
+    [InlineData("#N/AX")]
+    [InlineData("#FOO!")]
+    [InlineData("#")]
+    [InlineData("#DIV/0!!")]
+    public void ErrorCodes_TryGetCanonical_RejectsUnknownCodes(string input) => Assert.False(ErrorCodes.TryGetCanonical(input, out _));
 
     [Fact]
     public void ErrorCodes_IsKnown()

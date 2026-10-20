@@ -256,7 +256,20 @@ public class FormulaPrinterTests
     [InlineData("#N/A / 2", "=#N/A/2")]
     [InlineData("#DIV/0! / #N/A", "=#DIV/0!/#N/A")]
     [InlineData("#NAME? / 1", "=#NAME?/1")]
+    [InlineData("#n/a / 2", "=#N/A/2")]
     public void ErrorLiteralFollowedByDivide(string input, string expected)
+    {
+        Assert.Equal(expected, P(input));
+        AssertStable(expected);
+    }
+
+    // R56 (§5.1, §5.5): an error literal written in any case prints as the canonical upper-case code.
+    [Theory]
+    [InlineData("#n/a", "=#N/A")]
+    [InlineData("#div/0!+1", "=#DIV/0!+1")]
+    [InlineData("IF(A1,#value!,#Ref!)", "=IF(A1,#VALUE!,#REF!)")]
+    [InlineData("#n/a/2", "=#N/A/2")]
+    public void ErrorLiteralWrittenInLowerCase_PrintsUpperCase(string input, string expected)
     {
         Assert.Equal(expected, P(input));
         AssertStable(expected);

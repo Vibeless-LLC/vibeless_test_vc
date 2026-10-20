@@ -126,19 +126,32 @@ public class TokenizerTests
         Assert.Equal(src, t.Lexeme);
     }
 
-    // R52 (§5.1 "written exactly"): any other letter case is a tokenizer error, so the formula is #PARSE!.
+    // R56 (§5.1, supersedes R52): any letter case matches one of the eight codes; the token carries the canonical
+    // upper-case code and the lexeme keeps the text as written.
     [Theory]
-    [InlineData("#n/a")]
-    [InlineData("#div/0!")]
-    [InlineData("#Name?")]
-    [InlineData("#Parse!")]
-    public void ErrorLiteralInOtherCaseIsTokenizerError(string src) => Fails(src, 0);
+    [InlineData("#n/a", "#N/A")]
+    [InlineData("#div/0!", "#DIV/0!")]
+    [InlineData("#Name?", "#NAME?")]
+    [InlineData("#Parse!", "#PARSE!")]
+    [InlineData("#value!", "#VALUE!")]
+    [InlineData("#rEf!", "#REF!")]
+    [InlineData("#num!", "#NUM!")]
+    [InlineData("#circ!", "#CIRC!")]
+    public void ErrorLiteralInOtherCase_IsNormalisedToTheCanonicalCode_R56(string src, string code)
+    {
+        var t = Ok(src)[0];
+        Assert.Equal(TokenKind.Error, t.Kind);
+        Assert.Equal(code, t.Text);
+        Assert.Equal(src, t.Lexeme);
+    }
 
     [Theory]
     [InlineData("#FOO!")]
     [InlineData("#")]
     [InlineData("#N/AX")]
     [InlineData("#NULL!")]
+    [InlineData("#n/ax")]
+    [InlineData("#foo!")]
     public void UnknownErrorLiteralIsTokenizerError(string src) => Fails(src, 0);
 
     // §5.5 printing writes "#N/A / 2" as "#N/A/2": a '/' may end an error literal and is then the divide operator.
@@ -147,20 +160,24 @@ public class TokenizerTests
     [InlineData("#DIV/0!/2", "#DIV/0!")]
     [InlineData("#REF!/A1", "#REF!")]
     [InlineData("#N/A/#N/A", "#N/A")]
+    [InlineData("#n/a/2", "#N/A")]          // R56: the bounded '/' backtrack also ignores case
+    [InlineData("#Div/0!/2", "#DIV/0!")]
+    [InlineData("#ref!/a1", "#REF!")]
     public void ErrorLiteralEndsBeforeDivide(string src, string code)
     {
         var tokens = Ok(src);
         Assert.Equal(TokenKind.Error, tokens[0].Kind);
         Assert.Equal(code, tokens[0].Text);
-        Assert.Equal(code, tokens[0].Lexeme);
+        Assert.Equal(src[..code.Length], tokens[0].Lexeme);
         Assert.Equal(TokenKind.Slash, tokens[1].Kind);
         Assert.Equal(code.Length, tokens[1].Position);
     }
 
     [Theory]
     [InlineData("#N/AX/2")]
-    [InlineData("#n/a/2")]
+    [InlineData("#n/ax/2")]
     [InlineData("#DIV/2")]
+    [InlineData("#div/2")]
     public void UnknownErrorLiteralBeforeDivideIsStillTokenizerError(string src) => Fails(src, 0);
 
     // Security review (D-33): the '/' backtrack looks at most ErrorCodes.MaxLength characters and allocates nothing,
@@ -171,15 +188,18 @@ public class TokenizerTests
         string slashes = "#" + new string('/', 32766);
         string naTail = "#N/A" + new string('/', 32763);
         string mixed = "#" + string.Concat(Enumerable.Repeat("A/", 16383));
+        string lowerNaTail = "#n/a" + new string('/', 32763); // R56: the case-insensitive backtrack stays bounded
         Tokenizer.Tokenize(slashes); // warm up the JIT
         Tokenizer.Tokenize(naTail);
         Tokenizer.Tokenize(mixed);
+        Tokenizer.Tokenize(lowerNaTail);
 
         long allocBefore = GC.GetAllocatedBytesForCurrentThread();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var r1 = Tokenizer.Tokenize(slashes);
         var r2 = Tokenizer.Tokenize(naTail);
         var r3 = Tokenizer.Tokenize(mixed);
+        var r4 = Tokenizer.Tokenize(lowerNaTail);
         sw.Stop();
         long allocated = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
 
@@ -191,9 +211,12 @@ public class TokenizerTests
         Assert.Equal("#N/A", r2.Tokens[0].Text);
         Assert.Equal(32763, r2.Tokens.Count(t => t.Kind == TokenKind.Slash));
         Assert.False(r3.Success);
+        Assert.True(r4.Success);
+        Assert.Equal("#N/A", r4.Tokens[0].Text);
+        Assert.Equal(32763, r4.Tokens.Count(t => t.Kind == TokenKind.Slash));
         // Linear: the token list and a few strings (a few MB). The old per-k substring backtrack allocated about 1 GB.
         Assert.True(allocated < 16 * 1024 * 1024, $"allocated {allocated} bytes");
-        Assert.True(sw.ElapsedMilliseconds < 100, $"took {sw.ElapsedMilliseconds} ms");
+        Assert.True(sw.ElapsedMilliseconds < 150, $"took {sw.ElapsedMilliseconds} ms");
     }
 
     [Fact]
