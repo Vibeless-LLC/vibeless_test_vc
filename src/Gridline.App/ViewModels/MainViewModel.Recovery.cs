@@ -60,14 +60,16 @@ public sealed partial class MainViewModel
         }
     }
 
-    /// <summary>A clean exit (§11.6, R48; the window has closed, also after Don't Save): stops autosave and deletes the
-    /// recovery file. A killed process never gets here, so its file stays for the next startup.</summary>
+    /// <summary>A clean exit (§11.6, R48; the window has closed, also after Don't Save): stops autosave, deletes the
+    /// recovery file and releases the session's guid (D-40). A killed process never gets here, so its file stays for the
+    /// next startup, and the OS releases its guid lock.</summary>
     public void EndSession()
     {
         if (_sessionEnded) return;
         _sessionEnded = true;
         _autosaveTimer?.Stop();
         DeleteRecoveryFile();
+        _recovery?.Release(_sessionId);
     }
 
     private void OnAutosaveTick(object? sender, EventArgs e) => Autosave();
@@ -77,20 +79,26 @@ public sealed partial class MainViewModel
     private bool OfferRecovery()
     {
         if (_recovery is null) return false;
-        IReadOnlyList<RecoveryFile> files = _recovery.List();
+        IReadOnlyList<RecoveryFile> files = _recovery.List(); // without live sessions' files (D-40)
         if (files.Count == 0) return false;
-        var recovery = new RecoveryViewModel(files, Restore, file => _recovery.TryDelete(file.SessionId));
+        var recovery = new RecoveryViewModel(files, Restore,
+            file => !_recovery.IsInUse(file.SessionId) && _recovery.TryDelete(file.SessionId));
         _dialogs.ShowRecovery(recovery);
         return recovery.Restored is not null;
     }
 
     /// <summary>R50: the restored workbook becomes the window's Untitled, dirty workbook, and the session adopts the
-    /// restored file's guid, so the next autosave replaces that file and a Save or clean exit deletes it.</summary>
-    private void Restore(RecoveryFile file, Workbook workbook)
+    /// restored file's guid, so the next autosave replaces that file and a Save or clean exit deletes it. The restored
+    /// guid's lock is taken first (D-40); when another live session holds it, nothing is adopted.</summary>
+    /// <returns>False when the file is in use by another session.</returns>
+    private bool Restore(RecoveryFile file, Workbook workbook)
     {
+        if (_recovery is not null && !_recovery.TryClaim(file.SessionId)) return false;
         Adopt(workbook, null); // deletes the current session's own recovery file, if any
+        _recovery?.Release(_sessionId);
         _sessionId = file.SessionId;
         _restoredUnsaved = true;
         RefreshDocumentState();
+        return true;
     }
 }

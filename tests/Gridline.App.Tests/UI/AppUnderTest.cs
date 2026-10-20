@@ -182,6 +182,7 @@ internal sealed class AppUnderTest : IDisposable
         }
         finally
         {
+            try { UiInput.ReleaseStuckModifiers(); } catch (Exception) { /* best effort */ }
             Application.Dispose();
             Automation.Dispose();
             if (_ownedLocalAppData is not null)

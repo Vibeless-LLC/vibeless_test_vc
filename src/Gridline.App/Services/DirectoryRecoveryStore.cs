@@ -13,11 +13,22 @@ public sealed class DirectoryRecoveryStore : IRecoveryStore
 {
     private const string Extension = ".gridline";
 
-    public DirectoryRecoveryStore(string directory)
+    private readonly ISessionLock _locks;
+
+    /// <param name="directory">The recovery directory.</param>
+    /// <param name="sessionLock">Session ownership across processes; default <see cref="NamedMutexSessionLock"/>.</param>
+    public DirectoryRecoveryStore(string directory, ISessionLock? sessionLock = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(directory);
         Directory = directory;
+        _locks = sessionLock ?? new NamedMutexSessionLock();
     }
+
+    public bool TryClaim(Guid sessionId) => _locks.TryAcquire(sessionId);
+
+    public void Release(Guid sessionId) => _locks.Release(sessionId);
+
+    public bool IsInUse(Guid sessionId) => _locks.IsHeldElsewhere(sessionId);
 
     public string Directory { get; }
 
@@ -44,6 +55,7 @@ public sealed class DirectoryRecoveryStore : IRecoveryStore
             {
                 if (!string.Equals(Path.GetExtension(path), Extension, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "D", out Guid id)) continue;
+                if (_locks.IsHeldElsewhere(id)) continue; // a live session's file (D-40)
                 files.Add(new RecoveryFile(id, path, File.GetLastWriteTime(path)));
             }
         }

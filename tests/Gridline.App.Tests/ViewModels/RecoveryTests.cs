@@ -24,7 +24,8 @@ public sealed class RecoveryTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_root, recursive: true); } catch (IOException) { /* best effort */ }
+        try { Directory.Delete(_root, recursive: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
     }
 
     private MainViewModel NewViewModel() => new(_dialogs, new FakeClipboardService(), _store, _timer);
@@ -402,5 +403,134 @@ public sealed class RecoveryTests : IDisposable
         };
         NewViewModel().Startup(null);
         Assert.True(File.Exists(planted.Path));
+    }
+
+    // ---- live sessions: the per-guid named mutex (D-40) ----
+
+    /// <summary>Holds <c>Local\Gridline.Recovery.&lt;guid&gt;</c> on its own thread, as another live Gridline process would;
+    /// <see cref="Dispose"/> releases it, <see cref="Abandon"/> ends the thread without releasing (a killed process).</summary>
+    private sealed class OtherSession : IDisposable
+    {
+        private readonly ManualResetEventSlim _taken = new();
+        private readonly ManualResetEventSlim _finish = new();
+        private readonly Thread _thread;
+        private bool _release = true;
+
+        public OtherSession(Guid sessionId)
+        {
+            _thread = new Thread(() =>
+            {
+                var mutex = new Mutex(false, NamedMutexSessionLock.MutexName(sessionId));
+                mutex.WaitOne();
+                _taken.Set();
+                _finish.Wait();
+                if (_release) mutex.ReleaseMutex();
+                // not disposed when abandoning: the thread just ends while owning it
+            }) { IsBackground = true };
+            _thread.Start();
+            _taken.Wait();
+        }
+
+        public void Abandon()
+        {
+            _release = false;
+            _finish.Set();
+            _thread.Join();
+        }
+
+        public void Dispose()
+        {
+            _finish.Set();
+            _thread.Join();
+        }
+    }
+
+    [Fact]
+    public void ALiveSessionsFile_IsNotOffered()
+    {
+        var live = PlantRecovery("A1", "live", TimeSpan.Zero);
+        var free = PlantRecovery("A1", "free", TimeSpan.FromMinutes(1));
+        using var other = new OtherSession(live.SessionId);
+
+        Assert.Equal([free.SessionId], _store.List().Select(f => f.SessionId));
+        var vm = NewViewModel();
+        vm.Startup(null);
+        var dialog = Assert.Single(_dialogs.Recoveries);
+        Assert.Equal(free.SessionId, Assert.Single(dialog.Items).File.SessionId);
+        Assert.True(File.Exists(live.Path));
+    }
+
+    [Fact]
+    public void AFileWhoseSessionBecomesLive_CannotBeAdoptedOrDiscarded()
+    {
+        var planted = PlantRecovery("A1", "taken", TimeSpan.Zero);
+        OtherSession? other = null;
+        bool closed = false;
+        _dialogs.OnRecovery = d =>
+        {
+            d.CloseRequested += (_, _) => closed = true;
+            other = new OtherSession(planted.SessionId); // another instance adopted it after the dialog was built
+            var item = d.Items[0];
+            item.RestoreCommand.Execute(null);
+            Assert.Null(d.Restored);
+            Assert.Equal("This file is in use by another Gridline window.", item.Status);
+            item.DiscardCommand.Execute(null);
+            Assert.Equal("Could not delete this file.", item.Status);
+            Assert.Single(d.Items);
+        };
+        try
+        {
+            var vm = NewViewModel();
+            Assert.False(vm.Startup(null));
+            Assert.False(closed);
+            Assert.Equal("Gridline - Untitled", vm.Title);
+            Assert.NotEqual(planted.SessionId, vm.SessionId);
+            Assert.True(File.Exists(planted.Path));
+            Assert.Equal("", vm.Workbook.GetInput("A1"));
+        }
+        finally { other?.Dispose(); }
+    }
+
+    [Fact]
+    public void AnAbandonedOrReleasedSessionsFile_IsOffered_AndCanBeRestored()
+    {
+        var abandoned = PlantRecovery("A1", "abandoned", TimeSpan.Zero);
+        var released = PlantRecovery("A1", "released", TimeSpan.FromMinutes(1));
+        new OtherSession(abandoned.SessionId).Abandon(); // its owner died holding it: counts as free
+        new OtherSession(released.SessionId).Dispose();
+
+        Assert.Equal([abandoned.SessionId, released.SessionId], _store.List().Select(f => f.SessionId));
+        _dialogs.OnRecovery = d => d.Items[0].RestoreCommand.Execute(null);
+        var vm = NewViewModel();
+        Assert.True(vm.Startup(null));
+        Assert.Equal(abandoned.SessionId, vm.SessionId);
+        Assert.Equal("abandoned", vm.Workbook.GetInput("A1"));
+    }
+
+    [Fact]
+    public void ASession_HoldsItsGuidUntilACleanExit_AndARestoreMovesTheLockToTheAdoptedGuid()
+    {
+        var planted = PlantRecovery("A1", "1", TimeSpan.Zero);
+        _dialogs.OnRecovery = d => d.Items[0].RestoreCommand.Execute(null);
+        var vm = NewViewModel();
+        Guid original = vm.SessionId;
+        Assert.True(HeldOnAnotherThread(original)); // claimed at session start
+
+        vm.Startup(null); // restores the planted file
+        Assert.Equal(planted.SessionId, vm.SessionId);
+        Assert.True(HeldOnAnotherThread(planted.SessionId));
+        Assert.False(HeldOnAnotherThread(original)); // released after adopting
+
+        vm.EndSession();
+        Assert.False(HeldOnAnotherThread(planted.SessionId));
+    }
+
+    private static bool HeldOnAnotherThread(Guid sessionId)
+    {
+        bool held = false;
+        var t = new Thread(() => held = new NamedMutexSessionLock().IsHeldElsewhere(sessionId));
+        t.Start();
+        t.Join();
+        return held;
     }
 }

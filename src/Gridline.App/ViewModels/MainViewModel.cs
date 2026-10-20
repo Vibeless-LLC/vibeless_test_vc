@@ -27,6 +27,7 @@ public sealed partial class MainViewModel : ObservableObject
         _dialogs = dialogs;
         _clipboard = clipboard;
         _recovery = recovery;
+        _recovery?.TryClaim(_sessionId); // the session owns its guid for its lifetime (D-40); a fresh guid is always free
         _autosaveTimer = autosaveTimer;
         if (_autosaveTimer is not null) _autosaveTimer.Tick += OnAutosaveTick;
         _workbook = new Workbook();

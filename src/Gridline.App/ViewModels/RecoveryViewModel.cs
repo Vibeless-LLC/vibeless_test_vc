@@ -12,13 +12,14 @@ namespace Gridline.App.ViewModels;
 /// </summary>
 public sealed class RecoveryViewModel : ObservableObject
 {
-    private readonly Action<RecoveryFile, Workbook> _restore;
+    private readonly Func<RecoveryFile, Workbook, bool> _restore;
     private readonly Func<RecoveryFile, bool> _discard;
 
     /// <param name="files">The recovery files to offer.</param>
-    /// <param name="restore">Adopts a restored workbook (the main ViewModel).</param>
+    /// <param name="restore">Adopts a restored workbook (the main ViewModel); false when the file is in use by another
+    /// live session and was not adopted (D-40).</param>
     /// <param name="discard">Deletes a recovery file; false when it could not be deleted.</param>
-    internal RecoveryViewModel(IEnumerable<RecoveryFile> files, Action<RecoveryFile, Workbook> restore, Func<RecoveryFile, bool> discard)
+    internal RecoveryViewModel(IEnumerable<RecoveryFile> files, Func<RecoveryFile, Workbook, bool> restore, Func<RecoveryFile, bool> discard)
     {
         ArgumentNullException.ThrowIfNull(files);
         _restore = restore ?? throw new ArgumentNullException(nameof(restore));
@@ -53,8 +54,12 @@ public sealed class RecoveryViewModel : ObservableObject
     private void Restore(RecoveryItemViewModel item)
     {
         if (item.Workbook is null || Restored is not null) return;
+        if (!_restore(item.File, item.Workbook))
+        {
+            item.Status = "This file is in use by another Gridline window.";
+            return;
+        }
         Restored = item.File;
-        _restore(item.File, item.Workbook);
         RequestClose();
     }
 

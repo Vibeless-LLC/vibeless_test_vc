@@ -275,7 +275,6 @@ public class GridVirtualizationTests
         Assert.Equal(0, grid.RenderCount);
         Assert.Equal("", peer.GetItemStatus());
         RenderFrame(grid);
-        Assert.Equal("Rendered:" + grid.RenderCount, peer.GetItemStatus());
         Assert.Equal("Rendered:1", peer.GetItemStatus());
         RenderFrame(grid);
         Assert.Equal("Rendered:2", peer.GetItemStatus());

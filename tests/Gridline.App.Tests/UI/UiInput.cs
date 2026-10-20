@@ -8,6 +8,25 @@ namespace Gridline.App.Tests.UI;
 /// <summary>Keyboard and focus helpers shared by the FlaUI tests (D-37).</summary>
 internal static class UiInput
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    private static readonly VirtualKeyShort[] Modifiers =
+    [
+        VirtualKeyShort.LSHIFT, VirtualKeyShort.RSHIFT, VirtualKeyShort.SHIFT,
+        VirtualKeyShort.LCONTROL, VirtualKeyShort.RCONTROL, VirtualKeyShort.CONTROL,
+        VirtualKeyShort.LMENU, VirtualKeyShort.RMENU, VirtualKeyShort.ALT,
+    ];
+
+    /// <summary>Releases any Shift, Ctrl or Alt the system still reports as down. Injected chords occasionally leave a
+    /// modifier down at the OS level after a UI test (observed: Shift), which then leaks into later keyboard use on the
+    /// desktop, including in-process WPF tests that read <c>Keyboard.Modifiers</c>. Called when each app is disposed.</summary>
+    public static void ReleaseStuckModifiers()
+    {
+        foreach (var key in Modifiers)
+            if (GetAsyncKeyState((int)key) < 0) Keyboard.Release(key);
+    }
+
     /// <summary>Navigation keys are sent as extended scan codes. Sent as bare virtual keys they look like numpad keys, and
     /// with NumLock on Windows injects a Shift release before them, so Shift+arrow would arrive as a plain arrow.</summary>
     private static ushort ExtendedScanCode(VirtualKeyShort key) => key switch
