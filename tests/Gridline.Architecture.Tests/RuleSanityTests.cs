@@ -27,7 +27,9 @@ public class RuleSanityTests
         Assert.Contains(found, s => s.Contains("GetOnlyList"));
         Assert.Contains(found, s => s.Contains("Changed") && s.Contains("event"));
         Assert.DoesNotContain(found, s => s.Contains("InitOnly") || s.Contains("Constant") || s.Contains("ReadonlyString") || s.Contains("Immutable")
-            || s.Contains("ReadOnlyWrapper") || s.Contains("ReadOnlyInterface"));
+            || s.Contains("ReadOnlyWrapper") || s.Contains("ReadOnlyInterface") || s.Contains("Frozen") || s.Contains("EnumerableProp")
+            || s.Contains("ReadOnlyDictionaryProp") || s.Contains("ReadOnlyCollectionProp") || s.Contains("ComparerIfaceProp") || s.Contains("ComparerProp")
+            || s.Contains("PairProp"));
         Assert.Equal(7, found.Count);
     }
 
@@ -70,35 +72,73 @@ public class RuleSanityTests
     private static bool Flags(Type type, string forbidden) =>
         !Types.InAssembly(Self).That().HaveName(type.Name).ShouldNot().HaveDependencyOnAny(forbidden).GetResult().IsSuccessful;
 
-    // Each forbidden name is flagged on the type that uses only it, and not on types that use only a different one.
+    // Each forbidden name (§3.2, R37) is flagged on the type that uses only it and on no other fixture: the full
+    // grid, so File vs FileStream vs FileInfo vs FileSystemInfo and Directory vs DirectoryInfo are all pinned.
+    // (UsesOnlyConsoleColor is covered by the separate "not Console" test below.)
     [Theory]
     [InlineData("System.IO.File", typeof(UsesOnlyFile), true)]
     [InlineData("System.IO.File", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.IO.File", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.IO.File", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.IO.File", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.IO.File", typeof(UsesOnlyFileSystemInfo), false)]
     [InlineData("System.IO.File", typeof(UsesOnlyConsole), false)]
     [InlineData("System.IO.File", typeof(UsesNeitherForbidden), false)]
-    [InlineData("System.IO.Directory", typeof(UsesOnlyDirectory), true)]
     [InlineData("System.IO.Directory", typeof(UsesOnlyFile), false)]
+    [InlineData("System.IO.Directory", typeof(UsesOnlyDirectory), true)]
+    [InlineData("System.IO.Directory", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.IO.Directory", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.IO.Directory", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.IO.Directory", typeof(UsesOnlyFileSystemInfo), false)]
     [InlineData("System.IO.Directory", typeof(UsesOnlyConsole), false)]
     [InlineData("System.IO.Directory", typeof(UsesNeitherForbidden), false)]
-    [InlineData("System.IO.FileStream", typeof(UsesOnlyFileStream), true)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyFile), false)]
     [InlineData("System.IO.FileStream", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyFileStream), true)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyFileSystemInfo), false)]
+    [InlineData("System.IO.FileStream", typeof(UsesOnlyConsole), false)]
     [InlineData("System.IO.FileStream", typeof(UsesNeitherForbidden), false)]
-    [InlineData("System.Console", typeof(UsesOnlyConsole), true)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyFile), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyFileInfo), true)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyFileSystemInfo), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesOnlyConsole), false)]
+    [InlineData("System.IO.FileInfo", typeof(UsesNeitherForbidden), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyFile), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyDirectoryInfo), true)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyFileSystemInfo), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesOnlyConsole), false)]
+    [InlineData("System.IO.DirectoryInfo", typeof(UsesNeitherForbidden), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyFile), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyFileSystemInfo), true)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesOnlyConsole), false)]
+    [InlineData("System.IO.FileSystemInfo", typeof(UsesNeitherForbidden), false)]
     [InlineData("System.Console", typeof(UsesOnlyFile), false)]
     [InlineData("System.Console", typeof(UsesOnlyDirectory), false)]
+    [InlineData("System.Console", typeof(UsesOnlyFileStream), false)]
+    [InlineData("System.Console", typeof(UsesOnlyFileInfo), false)]
+    [InlineData("System.Console", typeof(UsesOnlyDirectoryInfo), false)]
+    [InlineData("System.Console", typeof(UsesOnlyFileSystemInfo), false)]
+    [InlineData("System.Console", typeof(UsesOnlyConsole), true)]
     [InlineData("System.Console", typeof(UsesNeitherForbidden), false)]
     public void ForbiddenTypeRule_Discriminates(string forbidden, Type type, bool expectFlagged) =>
         Assert.Equal(expectFlagged, Flags(type, forbidden));
 
-    // D-29: NetArchTest 1.3.2 matches the dependency name as a whole type name, not as a string prefix. The §3.2
-    // rules therefore ban exactly File, Directory, FileStream and Console; FileInfo, DirectoryInfo and ConsoleColor
-    // are NOT caught. This test pins that behaviour so a NetArchTest upgrade that changes it is noticed.
-    [Theory]
-    [InlineData("System.IO.File", typeof(UsesOnlyFileInfo))]
-    [InlineData("System.IO.Directory", typeof(UsesOnlyDirectoryInfo))]
-    [InlineData("System.Console", typeof(UsesOnlyConsoleColor))]
-    public void ForbiddenTypeRule_IsExactNameNotPrefix(string forbidden, Type type) =>
-        Assert.False(Flags(type, forbidden), $"{type.Name} unexpectedly flagged by {forbidden}: matching is no longer exact");
+    // D-29: NetArchTest 1.3.2 matches whole type names, not prefixes, so ConsoleColor is not caught by "System.Console"
+    // (the spec names only System.Console). This pins that behaviour so an upgrade that changes it is noticed.
+    [Fact]
+    public void ForbiddenTypeRule_ConsoleColorIsNotConsole() => Assert.False(Flags(typeof(UsesOnlyConsoleColor), "System.Console"));
 
     // ---- §3.3 namespace rules, through the same SiblingRule helper as NamespaceRuleTests ----
 

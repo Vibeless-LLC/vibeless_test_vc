@@ -7,7 +7,7 @@ namespace Gridline.IO.Tests;
 
 /// <summary>
 /// Phase 2 scale budgets for the dependency engine (§6.1, §6.7, §12). They sit next to <see cref="PerformanceGates"/>
-/// in the same non-parallel "Performance" collection, because D-30 makes IO.Tests the one place where wall-clock
+/// in the same non-parallel "Performance" collection, because D-30 makes IO.Tests the place where the §12 and scale wall-clock
 /// budgets are asserted and the collection keeps other tests in this assembly from disturbing the timings. They use
 /// only the public Workbook API. Release-only (skipped in Debug), trait Category=Performance; fixture construction is
 /// outside the timed region.

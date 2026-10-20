@@ -95,10 +95,19 @@ internal static class ArchSupport
         var ns = t.Namespace ?? "";
         if (!(ns == "System.Collections" || ns.StartsWith("System.Collections.", StringComparison.Ordinal))) return false;
         if (ns.StartsWith("System.Collections.Immutable", StringComparison.Ordinal) || ns.StartsWith("System.Collections.Frozen", StringComparison.Ordinal)) return false;
-        if (t.IsInterface && t.Name.StartsWith("IReadOnly", StringComparison.Ordinal)) return false;
         if (t.Name.StartsWith("ReadOnly", StringComparison.Ordinal)) return false; // ReadOnlyCollection<T>, ReadOnlyDictionary<,>
+        if (t.IsGenericType && ReadOnlyGenerics.Contains(t.GetGenericTypeDefinition())) return false;
+        if (t.IsInterface && t.Name.StartsWith("IReadOnly", StringComparison.Ordinal)) return false;
         return true;
     }
+
+    /// <summary>Generic types in System.Collections* that hold no mutable collection state: the read-only views, the
+    /// enumerable and comparer abstractions, and the key/value pair struct.</summary>
+    private static readonly HashSet<Type> ReadOnlyGenerics =
+    [
+        typeof(IEnumerable<>), typeof(IReadOnlyList<>), typeof(IReadOnlyCollection<>), typeof(IReadOnlyDictionary<,>), typeof(IReadOnlySet<>),
+        typeof(IComparer<>), typeof(IEqualityComparer<>), typeof(Comparer<>), typeof(EqualityComparer<>), typeof(KeyValuePair<,>),
+    ];
 
     /// <summary>Returns a description of every public/protected static mutable-state member on the given types.</summary>
     public static List<string> FindPublicMutableStatics(IEnumerable<Type> types)

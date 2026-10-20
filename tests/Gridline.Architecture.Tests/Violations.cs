@@ -20,6 +20,17 @@ public static class BadStatics
     // Allowed: read-only wrapper types.
     public static System.Collections.ObjectModel.ReadOnlyCollection<int> ReadOnlyWrapper { get; } = new([1]);
     public static IReadOnlyList<int> ReadOnlyInterface { get; } = [1];
+    public static System.Collections.Frozen.FrozenSet<int> FrozenSetProp { get; } = System.Collections.Frozen.FrozenSet.ToFrozenSet(new[] { 1 });
+    public static System.Collections.Frozen.FrozenDictionary<int, int> FrozenDictionaryProp { get; } = System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(new Dictionary<int, int>());
+    public static System.Collections.Immutable.ImmutableArray<int> ImmutableArrayProp { get; } = [1];
+    public static IEnumerable<int> EnumerableProp { get; } = [1];
+    public static IReadOnlyDictionary<int, int> ReadOnlyDictionaryProp { get; } = new Dictionary<int, int>();
+    public static IReadOnlyCollection<int> ReadOnlyCollectionProp { get; } = [1];
+    public static IComparer<int> ComparerIfaceProp { get; } = Comparer<int>.Default;
+    public static IEqualityComparer<int> EqualityComparerIfaceProp { get; } = EqualityComparer<int>.Default;
+    public static Comparer<int> ComparerProp { get; } = Comparer<int>.Default;
+    public static EqualityComparer<int> EqualityComparerProp { get; } = EqualityComparer<int>.Default;
+    public static KeyValuePair<int, int> PairProp { get; } = new(1, 2);
 }
 
 // Protected statics are exposed to derived classes of a public type.
@@ -60,9 +71,10 @@ public class UsesOnlyFile { public bool F() => File.Exists("x"); }
 public class UsesOnlyDirectory { public bool D() => Directory.Exists("x"); }
 public class UsesOnlyFileStream { public FileStream S() => new("x", FileMode.Open); }
 public class UsesOnlyConsole { public void C() => Console.WriteLine(); }
-// Related BCL types that the exact-name rules do NOT catch (recorded in DECISIONS D-29).
+// Related BCL types, banned by their own explicit names (ruling R37, DECISIONS D-29).
 public class UsesOnlyFileInfo { public long L() => new FileInfo("x").Length; }
-public class UsesOnlyDirectoryInfo { public bool E() => new DirectoryInfo("x").Exists; }
+public class UsesOnlyDirectoryInfo { public void E() => new DirectoryInfo("x").Create(); }
+public class UsesOnlyFileSystemInfo { public bool E(FileSystemInfo i) => i.Exists; }
 public class UsesOnlyConsoleColor { public ConsoleColor C() => ConsoleColor.Red; }
 // Uses none of File, Directory, FileStream or Console (Path and StringBuilder are other System.IO / System types).
 public class UsesNeitherForbidden { public string P() => Path.Combine("a", "b") + new System.Text.StringBuilder().Append('x'); }

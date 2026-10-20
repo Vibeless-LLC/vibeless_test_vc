@@ -15,7 +15,5 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Gridline.Core\Gridline.Core.csproj" />
     <ProjectReference Include="..\..\src\Gridline.IO\Gridline.IO.csproj" />
-    <!-- P-7 child-process probe (D-30): built and copied next to the test assembly, run with `dotnet Gridline.PerfProbe.dll`. -->
-    <ProjectReference Include="..\Gridline.PerfProbe\Gridline.PerfProbe.csproj" />
   </ItemGroup>
 </Project>

@@ -26,11 +26,15 @@ public class ProjectRuleTests
     }
 
     // §3.2: Core MUST NOT use System.IO.File / Directory / FileStream (type-level, not using directives).
-    // The names are prefix matches, so System.IO.FileInfo and DirectoryInfo are covered too (stricter than required).
+    // NetArchTest matches whole type names, not prefixes (D-29), so FileInfo, DirectoryInfo and FileSystemInfo are
+    // listed explicitly (ruling R37, stricter than the four types §3.2 names).
     [Theory]
     [InlineData("System.IO.File")]
     [InlineData("System.IO.Directory")]
     [InlineData("System.IO.FileStream")]
+    [InlineData("System.IO.FileInfo")]
+    [InlineData("System.IO.DirectoryInfo")]
+    [InlineData("System.IO.FileSystemInfo")]
     public void S3_2_Core_DoesNotUseForbiddenIoType(string forbidden)
     {
         var r = AssemblyMustNotDependOn(CoreAsm, forbidden);

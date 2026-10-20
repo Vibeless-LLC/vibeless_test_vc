@@ -5,14 +5,14 @@ using Xunit.Abstractions;
 
 namespace Gridline.IO.Tests;
 
-/// <summary>Serialises the performance gates (and keeps them away from other test classes) so that
-/// timings are not disturbed by parallel tests in this assembly (cross-assembly contention: see DECISIONS D-30).</summary>
+/// <summary>Serialises the performance gates (and keeps them away from other test classes) so that timings and
+/// the P-7 memory reading are not disturbed by parallel tests in this assembly (cross-assembly contention: DECISIONS D-30).</summary>
 [CollectionDefinition("Performance", DisableParallelization = true)]
 public class PerformanceCollection;
 
 /// <summary>
-/// The Phase 1 release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
-/// P-6 (GUI) is out of scope for Phase 1. Budgets are defined for Release builds, so the gates are skipped in Debug.
+/// The release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
+/// P-6 (GUI) belongs with the App phase. Budgets are defined for Release builds, so the gates are skipped in Debug.
 /// Method: one warm-up, then the median of 5 runs (P-3: median of 1,000 edits per run, median of 5 runs).
 /// Fixtures follow ruling R32 and are built in code. Budgets are never relaxed; optimise the hot path instead.
 /// </summary>
@@ -190,51 +190,37 @@ public class PerformanceGates(ITestOutputHelper output)
         finally { DeleteQuietly(path); }
     }
 
-    /// <summary>
-    /// P-7 (§12): load a 100,000-formula file in a dedicated child process (tests/Gridline.PerfProbe) and read its
-    /// private memory there. A fresh process contains only the runtime, the engine and the loaded workbook, so the
-    /// reading is not inflated by the xunit host, the other tests' garbage or the fixture builder (DECISIONS D-30).
-    /// The child does one warm-up load and then <see cref="Runs"/> timed loads, forces two full GCs with the last
-    /// workbook alive, and prints "ms,ms,...;privateMB;cellCount".
-    /// </summary>
+    /// <summary>P-7 (§12) is measured in-host, see DECISIONS D-30 for why that is reliable and the measured headroom.</summary>
     [Fact(Skip = ReleaseOnly)]
-    public async Task P7_Load100kFormulas_Within5s_And600MB()
+    public void P7_Load100kFormulas_Within5s_And600MB()
     {
+        var wb = Workbook.FromCells(AllFormulas());
         string path = TempFile();
         try
         {
-            var builder = Workbook.FromCells(AllFormulas());
-            GridlineFile.SaveToPath(builder, path);
-            builder = null!;
+            GridlineFile.SaveToPath(wb, path);
+            wb = null!; // drop the builder workbook so it does not count towards memory
+            GridlineFile.LoadFromPath(path); // warm-up
 
-            string probe = Path.Combine(AppContext.BaseDirectory, "Gridline.PerfProbe.dll");
-            Assert.True(File.Exists(probe), "Gridline.PerfProbe.dll not found next to the test assembly: " + probe);
-            var psi = new ProcessStartInfo("dotnet")
+            var times = new List<double>();
+            Workbook? loaded = null;
+            for (int i = 0; i < Runs; i++)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add(probe);
-            psi.ArgumentList.Add(path);
-            psi.ArgumentList.Add(Runs.ToString(CultureInfo.InvariantCulture));
-            using var child = Process.Start(psi)!;
-            var stderrTask = child.StandardError.ReadToEndAsync();
-            var stdoutTask = child.StandardOutput.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            await child.WaitForExitAsync(timeout.Token);
-            string stdout = await stdoutTask;
-            Assert.True(child.ExitCode == 0, "P-7 probe failed: " + await stderrTask);
-
-            var parts = stdout.Trim().Split(';');
-            Assert.Equal(3, parts.Length);
-            var times = parts[0].Split(',').Select(t => double.Parse(t, CultureInfo.InvariantCulture)).ToList();
-            double mb = double.Parse(parts[1], CultureInfo.InvariantCulture);
-            Assert.Equal(100_000, int.Parse(parts[2], CultureInfo.InvariantCulture));
-            Assert.Equal(Runs, times.Count);
+                loaded = null; // release the previous load before the next one
+                long t0 = Stopwatch.GetTimestamp();
+                loaded = GridlineFile.LoadFromPath(path);
+                times.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+            }
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            using var process = Process.GetCurrentProcess();
+            process.Refresh();
+            double mb = process.PrivateMemorySize64 / (1024.0 * 1024.0);
             double median = Median(times);
-            output.WriteLine($"P-7 load 100k formulas (child process) median {median:F1} ms (runs: {string.Join(", ", times.Select(t => t.ToString("F1")))}); private memory after load+GC {mb:F1} MB");
+            output.WriteLine($"P-7 load 100k formulas median {median:F1} ms; private memory after load+GC {mb:F1} MB");
+            GC.KeepAlive(loaded);
+            Assert.Equal(100_000, loaded!.GetUsedAddresses().Count);
             Assert.True(median <= 5000, $"P-7 load median {median:F1} ms > 5000 ms");
             Assert.True(mb <= 600, $"P-7 private memory {mb:F1} MB > 600 MB");
         }
