@@ -104,7 +104,7 @@ internal static class MathFunctions
         };
     }
 
-    /// <summary>COUNT (R17): references count numbers; direct arguments count numbers, booleans and numeric text. Errors are never propagated.</summary>
+    /// <summary>COUNT (R17, R34): references count numbers; direct arguments count numbers, booleans, numeric text and omitted arguments (as 0). Errors are never propagated.</summary>
     private static CellValue Count(IFunctionArguments a)
     {
         long count = 0;
@@ -115,7 +115,11 @@ internal static class MathFunctions
                 foreach (var cell in a.EnumerateReferenceValues(i))
                     if (cell.Value.Kind == ValueKind.Number) count++;
             }
-            else if (!a.IsOmitted(i))
+            else if (a.IsOmitted(i))
+            {
+                count++;                                  // R34: an omitted direct argument is the number 0
+            }
+            else
             {
                 var v = a.Evaluate(i);
                 if (v.Kind is ValueKind.Number or ValueKind.Boolean) count++;
@@ -125,7 +129,7 @@ internal static class MathFunctions
         return CellValue.FromNumber(count);
     }
 
-    /// <summary>COUNTA (R17): every non-blank value, including errors and "" results. Omitted arguments are not counted.</summary>
+    /// <summary>COUNTA (R17): every non-blank value, including errors and "" results. An omitted direct argument counts (R34: it is the number 0).</summary>
     private static CellValue CountA(IFunctionArguments a)
     {
         long count = 0;
@@ -136,7 +140,7 @@ internal static class MathFunctions
                 foreach (var cell in a.EnumerateReferenceValues(i))
                     if (!cell.IsBlank) count++;
             }
-            else if (!a.IsOmitted(i) && a.Evaluate(i).Kind != ValueKind.Blank)
+            else if (a.IsOmitted(i) || a.Evaluate(i).Kind != ValueKind.Blank)
             {
                 count++;
             }
@@ -160,7 +164,7 @@ internal static class MathFunctions
     /// <summary>
     /// SUMPRODUCT (R17): arguments are multiplied element by element and the products summed. Reference arguments must
     /// have the same width and height, else #VALUE!; a direct argument is a 1x1 array. Non-numeric entries count as 0
-    /// and errors propagate.
+    /// and errors propagate: the first error in argument order wins (R35), argument 1 scanned fully before argument 2.
     /// </summary>
     private static CellValue SumProduct(IFunctionArguments a)
     {
@@ -184,12 +188,20 @@ internal static class MathFunctions
             else if (w != width || h != height) return ValueError;
         }
 
+        // R35: error scan in argument order; each reference argument is scanned in full before the next argument.
         for (int i = 0; i < n; i++)
         {
-            if (a.IsReference(i)) continue;
-            var v = a.Evaluate(i);
-            if (v.Kind == ValueKind.Error) return v;
-            scalars[i] = v.Kind == ValueKind.Number ? v.Number : 0;
+            if (a.IsReference(i))
+            {
+                foreach (var cell in a.EnumerateReferenceValues(i))
+                    if (cell.Value.Kind == ValueKind.Error) return cell.Value;
+            }
+            else
+            {
+                var v = a.Evaluate(i);
+                if (v.Kind == ValueKind.Error) return v;
+                scalars[i] = v.Kind == ValueKind.Number ? v.Number : 0;
+            }
         }
 
         double total = 0;
@@ -202,7 +214,6 @@ internal static class MathFunctions
                 {
                     enumerators[i].MoveNext();
                     var v = enumerators[i].Current.Value;
-                    if (v.Kind == ValueKind.Error) return v;
                     product *= v.Kind == ValueKind.Number ? v.Number : 0;
                 }
                 else
@@ -226,11 +237,17 @@ internal static class MathFunctions
         return x < 0 ? NumError : CellValue.FromNumber(Math.Sqrt(x));
     }
 
-    /// <summary>MOD(n,d): result has the sign of d (n - d*floor(n/d)); d = 0 is #DIV/0!.</summary>
+    /// <summary>
+    /// MOD(n,d) (§7.1, R35): the result has the sign of d, i.e. n - d*floor(n/d), computed with exact IEEE fmod and then
+    /// adjusted to d's sign. d = 0 is #DIV/0!; |n/d| >= 2^27 is #NUM! (Excel's documented limit).
+    /// </summary>
+    private const double ModQuotientLimit = 134_217_728; // 2^27
+
     private static CellValue Mod(IFunctionArguments a)
     {
         if (!TryTwoNumbers(a, out double n, out double d, out var error)) return error;
         if (d == 0) return DivZeroError;
+        if (!(Math.Abs(n / d) < ModQuotientLimit)) return NumError;
         double r = n % d; // exact fmod, same sign as n
         if (r != 0 && (r < 0) != (d < 0)) r += d;
         return CellValue.FromNumber(r);

@@ -144,6 +144,27 @@ public class TextFunctionTests
         Assert.Equal(V, Run("SEARCH(\"a\",\"abc\",0)"));
     }
 
+    // Regression (§7.3): wildcard edge cases.
+    [Fact]
+    public void Search_WildcardRegression()
+    {
+        Assert.Equal(N(1), Run("SEARCH(\"a?c*d\",\"abcxacd\")"));
+        Assert.Equal(N(3), Run("SEARCH(\"c~\",\"abc~\")"));          // dangling ~ stands for itself, at the end
+        Assert.Equal(N(2), Run("SEARCH(\"~\",\"a~b\")"));
+        Assert.Equal(V, Run("SEARCH(\"c~\",\"abc\")"));
+        Assert.Equal(V, Run("SEARCH(\"*b\",\"abc\",3)"));
+    }
+
+    [Fact]
+    public void Search_NearMissPathologicalPatternIsFast()
+    {
+        var sw = Stopwatch.StartNew();
+        var r = Run("SEARCH(\"a*a*a*a*a*a*a*a*b\",REPT(\"a\",30000))");
+        sw.Stop();
+        Assert.Equal(V, r);
+        Assert.True(sw.ElapsedMilliseconds < 1000, $"took {sw.ElapsedMilliseconds} ms");
+    }
+
     [Fact]
     public void Search_PathologicalPatternsAreFast()
     {

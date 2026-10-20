@@ -196,13 +196,12 @@ internal static class TextFunctions
 
         var sb = new StringBuilder();
         bool first = true, overflow = false;
-        CellValue Take(string s)
+        void Take(string s)
         {
-            if (overflow || (ignoreEmpty && s.Length == 0)) return default;
-            if (!first && !TryAppend(sb, delimiter)) { overflow = true; return default; }
-            if (!TryAppend(sb, s)) { overflow = true; return default; }
+            if (overflow || (ignoreEmpty && s.Length == 0)) return;
+            if (!first && !TryAppend(sb, delimiter)) { overflow = true; return; }
+            if (!TryAppend(sb, s)) { overflow = true; return; }
             first = false;
-            return default;
         }
 
         for (int i = 2; i < a.Count; i++)

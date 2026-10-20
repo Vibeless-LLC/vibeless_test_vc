@@ -218,8 +218,14 @@ public class FormulaEvaluatorTests
         OnSmallStack(1024 * 1024, () => result = Run("DEEP(1+1)", functions: fns));
         Assert.Equal(E(ErrorCodes.Num), result);
 
-        static CellValue Burn(IFunctionArguments a) =>
-            System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack() ? Burn(a) : a.Evaluate(0);
+        // Non-tail recursion (the result is used after the call) so the JIT cannot turn Burn into a loop.
+        static CellValue Burn(IFunctionArguments a)
+        {
+            if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack()) return a.Evaluate(0);
+            var inner = Burn(a);
+            GC.KeepAlive(a); // work after the call keeps it a non-tail call
+            return inner;
+        }
     }
 
     [Fact]

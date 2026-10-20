@@ -70,19 +70,25 @@ public readonly struct CellValue : IEquatable<CellValue>
     /// <summary>Escapes backslash, tab, LF and CR as two-character sequences (§8.3), as used by the T: canonical form.</summary>
     public static string EscapeText(string s) => Escape(s);
 
+
+    private static readonly System.Buffers.SearchValues<char> NeedsEscape =
+        System.Buffers.SearchValues.Create(['\\', '\t', '\n', '\r']);
+
     private static string Escape(string s)
     {
-        const char Bs = (char)92;
-        if (s.AsSpan().IndexOfAny(Bs, (char)9, (char)10) < 0 && s.IndexOf((char)13) < 0) return s;
+        int first = s.AsSpan().IndexOfAny(NeedsEscape);
+        if (first < 0) return s;
         var sb = new StringBuilder(s.Length + 8);
-        foreach (var c in s)
+        sb.Append(s, 0, first);
+        for (int i = first; i < s.Length; i++)
         {
+            char c = s[i];
             switch (c)
             {
-                case Bs: sb.Append(Bs).Append(Bs); break;
-                case (char)9: sb.Append(Bs).Append('t'); break;
-                case (char)10: sb.Append(Bs).Append('n'); break;
-                case (char)13: sb.Append(Bs).Append('r'); break;
+                case '\\': sb.Append('\\').Append('\\'); break;
+                case '\t': sb.Append('\\').Append('t'); break;
+                case '\n': sb.Append('\\').Append('n'); break;
+                case '\r': sb.Append('\\').Append('r'); break;
                 default: sb.Append(c); break;
             }
         }

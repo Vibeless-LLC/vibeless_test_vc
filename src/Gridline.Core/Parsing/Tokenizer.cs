@@ -7,10 +7,6 @@ namespace Gridline.Core.Parsing;
 /// <summary>Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='.</summary>
 public static class Tokenizer
 {
-    private static readonly string[] AllErrorCodes =
-        [ErrorCodes.DivZero, ErrorCodes.NA, ErrorCodes.Name, ErrorCodes.Num,
-         ErrorCodes.Ref, ErrorCodes.Value, ErrorCodes.Circ, ErrorCodes.Parse];
-
     public static TokenizeResult Tokenize(string formulaText)
     {
         ArgumentNullException.ThrowIfNull(formulaText);
@@ -55,12 +51,7 @@ public static class Tokenizer
                 i++;
                 while (i < s.Length && (IsAsciiLetter(s[i]) || IsDigit(s[i]) || s[i] is '/' or '!' or '?')) i++;
                 string lex = s.Substring(start, i - start);
-                string? canonical = null;
-                foreach (var code in AllErrorCodes)
-                {
-                    if (string.Equals(code, lex, StringComparison.OrdinalIgnoreCase)) { canonical = code; break; }
-                }
-                if (canonical is null) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
+                if (!ErrorCodes.TryGetCanonical(lex, out var canonical)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
                 tokens.Add(new Token(TokenKind.Error, start, lex, Text: canonical));
             }
             else if (c == '$' || IsAsciiLetter(c))

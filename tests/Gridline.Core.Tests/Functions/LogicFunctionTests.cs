@@ -225,4 +225,22 @@ public class LogicFunctionTests
         Assert.Equal(E(ErrorCodes.Parse), Run("ISNA()"));
         Assert.Equal(T, Run("OR(" + string.Join(",", Enumerable.Repeat("TRUE", 255)) + ")"));
     }
+
+    // Regression (§7.2, R11): a multi-cell range in scalar context is #VALUE!; errors order left to right with no short-circuit.
+    [Fact]
+    public void RangeConditionIsValue()
+    {
+        var cells = new DictionaryCells().Set("A1", true).Set("A2", true);
+        Assert.Equal(E(ErrorCodes.Value), Run("IF(A1:A2,1,2)", cells));
+        Assert.Equal(E(ErrorCodes.Value), Run("NOT(A1:A2)", cells));
+    }
+
+    [Fact]
+    public void OrTrueThenErrorCell_PropagatesError()
+    {
+        var cells = new DictionaryCells().Set("A1", E(ErrorCodes.Ref));
+        Assert.Equal(E(ErrorCodes.Ref), Run("OR(TRUE,A1)", cells));
+        Assert.Equal(E(ErrorCodes.Ref), Run("OR(A1,TRUE)", cells));
+        Assert.Equal(E(ErrorCodes.NA), Run("OR(#N/A,A1)", cells));
+    }
 }

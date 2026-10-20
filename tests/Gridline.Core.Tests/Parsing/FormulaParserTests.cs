@@ -26,9 +26,12 @@ public class FormulaParserTests
 
     private static readonly FakeArities Arities = new();
 
-    private static string Shape(string formulaText, IFunctionArityProvider? arities = null)
+    private static string Shape(string formulaText) => Shape(formulaText, Arities);
+
+    /// <summary>Uses exactly the given provider; an explicit null means "no arity checking" and is honoured.</summary>
+    private static string Shape(string formulaText, IFunctionArityProvider? arities)
     {
-        var r = FormulaParser.Parse(formulaText, arities ?? Arities);
+        var r = FormulaParser.Parse(formulaText, arities);
         Assert.True(r.Success, $"'{formulaText}': {r.ErrorMessage} at {r.ErrorPosition}");
         Assert.NotNull(r.Root);
         Assert.Equal("", r.ErrorMessage);
@@ -36,9 +39,12 @@ public class FormulaParserTests
         return Print(r.Root!);
     }
 
-    private static ParsedFormula Fails(string formulaText, int? position = null, IFunctionArityProvider? arities = null)
+    private static ParsedFormula Fails(string formulaText, int? position = null) => Fails(formulaText, position, Arities);
+
+    /// <summary>Uses exactly the given provider; an explicit null means "no arity checking" and is honoured.</summary>
+    private static ParsedFormula Fails(string formulaText, int? position, IFunctionArityProvider? arities)
     {
-        var r = FormulaParser.Parse(formulaText, arities ?? Arities);
+        var r = FormulaParser.Parse(formulaText, arities);
         Assert.False(r.Success, $"'{formulaText}' unexpectedly parsed");
         Assert.Null(r.Root);
         Assert.False(string.IsNullOrEmpty(r.ErrorMessage));
@@ -104,6 +110,14 @@ public class FormulaParserTests
     [Fact] public void UnaryChain() => Assert.Equal("Unary(-,Unary(+,Unary(-,1)))", Shape("-+-1"));
     [Fact] public void UnaryAppliesToParenGroup() => Assert.Equal("Unary(-,Paren(Binary(^,2,2)))", Shape("-(2^2)"));
     [Fact] public void UnaryBindsTighterThanMultiply() => Assert.Equal("Binary(*,Unary(-,1),Unary(-,2))", Shape("-1*-2"));
+    // Stack-machine regression shapes (§5.2, §5.3).
+    [Fact] public void CallWithParenthesisedArgument() =>
+        Assert.Equal("Call(SUM,1,Binary(*,Paren(Binary(+,2,3)),4))", Shape("SUM(1,(2+3)*4)"));
+    [Fact] public void RangeThenAddition() => Assert.Equal("Binary(+,Range(A1,B2),1)", Shape("A1:B2+1"));
+    [Fact] public void DoubleNegationInParens() => Assert.Equal("Unary(-,Paren(Unary(-,1)))", Shape("-(-1)"));
+    [Fact] public void PercentInsidePowerInsideSum() =>
+        Assert.Equal("Binary(+,1,Binary(*,2,Binary(^,3,Percent(2))))", Shape("1+2*3^2%"));
+    [Fact] public void UnaryRightOfMultiply() => Assert.Equal("Binary(*,2,Binary(^,Unary(-,3),2))", Shape("2*-3^2"));
     [Fact] public void WhitespaceIsIgnored() => Assert.Equal("Binary(+,1,Binary(*,2,3))", Shape(" 1 + 2 *\t3 "));
 
     [Theory]
@@ -175,6 +189,14 @@ public class FormulaParserTests
     }
 
     private static FunctionCallNode Call(string text) => Assert.IsType<FunctionCallNode>(FormulaParser.Parse(text, Arities).Root);
+
+    [Fact]
+    public void NullArityProviderIsHonouredByHelpers()
+    {
+        Assert.Equal("Call(ABS,1,2)", Shape("ABS(1,2)", null));   // would fail with the fake table
+        Fails("ABS(1,2)");
+        Fails("1+", null, null);
+    }
 
     [Fact]
     public void NullArityProviderSkipsArityChecks()
@@ -346,12 +368,18 @@ public class FormulaParserTests
             Nest(64, "IF(1,", "2", ",3)"),
         ];
         var results = new bool[inputs.Length];
+        Exception? failure = null;
         var thread = new Thread(() =>
         {
-            for (int i = 0; i < inputs.Length; i++) results[i] = FormulaParser.Parse(inputs[i], Arities).Success;
+            try
+            {
+                for (int i = 0; i < inputs.Length; i++) results[i] = FormulaParser.Parse(inputs[i], Arities).Success;
+            }
+            catch (Exception ex) { failure = ex; }
         }, 256 * 1024);
         thread.Start();
         thread.Join();
+        Assert.Null(failure);
         Assert.All(results, Assert.True);
     }
 

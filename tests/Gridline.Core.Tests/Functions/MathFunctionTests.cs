@@ -201,7 +201,7 @@ public class MathFunctionTests
         Assert.Equal(N(3), Run("COUNT(1,TRUE,\"5\")"));                    // direct: numbers, booleans, numeric text
         Assert.Equal(N(0), Run("COUNT(\"x\",#N/A)"));                       // direct text / error: not counted, not propagated
         Assert.Equal(N(0), Run("COUNT(A1:A2)", new DictionaryCells().Set("A1", E(ErrorCodes.Ref))));
-        Assert.Equal(N(2), Run("COUNT(1,,2)"));                             // omitted not counted
+        Assert.Equal(N(3), Run("COUNT(1,,2)"));                             // R34: omitted direct argument counts as 0
     }
 
     [Fact]
@@ -211,8 +211,54 @@ public class MathFunctionTests
         Assert.Equal(N(7), Run("COUNTA(A1:A7)", cells.Set("A7", 0)));      // everything non-blank incl. errors and ""
         Assert.Equal(N(0), Run("COUNTA(A9:A10)"));
         Assert.Equal(N(3), Run("COUNTA(1,\"\",#N/A)"));                    // direct: every present value incl. errors and ""
-        Assert.Equal(N(2), Run("COUNTA(1,,2)"));
+        Assert.Equal(N(3), Run("COUNTA(1,,2)"));                           // R34
     }
+
+    // Regression (§7.1): ROUND family extremes and sign handling.
+    [Theory]
+    [InlineData("ROUND(1E+300,-299)", 1E+300)]
+    [InlineData("ROUND(1.23E-10,12)", 1.23E-10)]
+    [InlineData("ROUND(999.5,0)", 1000)]
+    [InlineData("ROUNDUP(-1.21,1)", -1.3)]
+    [InlineData("ROUNDDOWN(1.29,1)", 1.2)]
+    public void RoundFamilyRegression(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
+
+    // R34 (§7.0): an omitted direct argument is the number 0 in every aggregate, consistently.
+    [Theory]
+    [InlineData("SUM(1,,2)", 3)]
+    [InlineData("AVERAGE(1,)", 0.5)]
+    [InlineData("COUNT(1,,2)", 3)]
+    [InlineData("COUNTA(1,,2)", 3)]
+    [InlineData("MIN(1,)", 0)]
+    [InlineData("MAX(-1,)", 0)]
+    [InlineData("PRODUCT(2,,3)", 0)]
+    [InlineData("SUMSQ(2,)", 4)]
+    public void OmittedDirectArgumentIsZero_R34(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
+
+    // R35 (§7.1): the first error in argument order wins, scanning argument 1 fully before argument 2.
+    [Fact]
+    public void SumProduct_FirstErrorInArgumentOrder_R35()
+    {
+        var cells = new DictionaryCells()
+            .Set("A1", 1).Set("A2", E(ErrorCodes.Ref)).Set("A3", 1)
+            .Set("B1", E(ErrorCodes.NA)).Set("B2", 1).Set("B3", 1);
+        Assert.Equal(E(ErrorCodes.Ref), Run("SUMPRODUCT(A1:A3,B1:B3)", cells));   // row-major would find B1 first
+        Assert.Equal(E(ErrorCodes.NA), Run("SUMPRODUCT(B1:B3,A1:A3)", cells));
+        Assert.Equal(E(ErrorCodes.DivZero), Run("SUMPRODUCT(1/0,#N/A)"));          // scalars: left to right
+    }
+
+    // R35 (§7.1): MOD is #NUM! when |n/d| >= 2^27, else n - d*floor(n/d).
+    [Theory]
+    [InlineData("MOD(1E+300,7)", ErrorCodes.Num)]
+    [InlineData("MOD(134217728,1)", ErrorCodes.Num)]
+    [InlineData("MOD(-134217728,1)", ErrorCodes.Num)]
+    [InlineData("MOD(1,1E-300)", ErrorCodes.Num)]
+    public void ModHugeQuotientIsNum_R35(string formula, string code) => Assert.Equal(E(code), Run(formula));
+
+    [Theory]
+    [InlineData("MOD(134217727,1)", 0)]
+    [InlineData("MOD(134217727.5,1)", 0.5)]
+    public void ModJustBelowLimitIsComputed_R35(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
 
     [Fact]
     public void CountBlank()
