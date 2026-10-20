@@ -8,8 +8,8 @@ namespace Gridline.App.ViewModels;
 /// <summary>
 /// Autosave and recovery (§11.6, R48, R50, R51): while dirty, every timer tick saves the workbook atomically as this
 /// session's recovery file (<see cref="IRecoveryStore"/>) without marking it saved; a successful Save, adopting another
-/// workbook and a clean exit delete it. At startup recovery files are offered in the RecoveryDialog before the file
-/// argument is opened. See DECISIONS D-40.
+/// workbook and a clean exit delete it. At startup recovery files are offered in the RecoveryDialog (owned by the shown main window)
+/// before the file argument is opened. See DECISIONS D-40.
 /// </summary>
 public sealed partial class MainViewModel
 {
@@ -25,14 +25,49 @@ public sealed partial class MainViewModel
     /// <summary>This session's recovery file path, or null when there is no recovery store.</summary>
     public string? RecoveryPath => _recovery?.PathFor(_sessionId);
 
+    private IReadOnlyList<RecoveryFile>? _pendingRecovery;
+    private string? _pendingFileArgument;
+
     /// <summary>
-    /// Startup (§11.6, R44, R50): offers the recovery files, if any, in the RecoveryDialog; then, unless one was restored,
-    /// opens <paramref name="fileArgument"/> (on failure an error is shown and it stays Untitled); then starts autosave.
+    /// Startup in one call (§11.6, R44, R50): <see cref="BeginStartup"/> and, when recovery files are pending,
+    /// <see cref="CompleteStartup"/>. The app itself calls the two halves around showing the main window (D-40).
     /// </summary>
     /// <returns>True when a recovery file was restored.</returns>
-    public bool Startup(string? fileArgument)
+    public bool Startup(string? fileArgument) => BeginStartup(fileArgument) && CompleteStartup();
+
+    /// <summary>
+    /// First half of startup (§11.6, §11.7, D-40). With no recovery files (the usual case, and P-6's): opens
+    /// <paramref name="fileArgument"/> (on failure an error is shown and it stays Untitled), starts autosave and returns
+    /// false, so the window is shown with the file already loaded. With recovery files: does nothing yet and returns
+    /// true; the caller shows the main window and then calls <see cref="CompleteStartup"/>, which shows the
+    /// RecoveryDialog as the main window's owned modal.
+    /// </summary>
+    /// <returns>True when recovery is pending and <see cref="CompleteStartup"/> must be called.</returns>
+    public bool BeginStartup(string? fileArgument)
     {
-        bool restored = OfferRecovery();
+        IReadOnlyList<RecoveryFile> files = _recovery?.List() ?? []; // without live sessions' files (D-40)
+        if (files.Count == 0)
+        {
+            if (fileArgument is not null) TryLoad(fileArgument);
+            _autosaveTimer?.Start();
+            return false;
+        }
+        _pendingRecovery = files;
+        _pendingFileArgument = fileArgument;
+        return true;
+    }
+
+    /// <summary>Second half of startup (§11.6, D-40): offers the pending recovery files in the RecoveryDialog; a restore
+    /// skips the file argument, otherwise the file argument is opened after the dialog has closed; then autosave starts.
+    /// Does nothing when <see cref="BeginStartup"/> found no recovery files.</summary>
+    /// <returns>True when a recovery file was restored.</returns>
+    public bool CompleteStartup()
+    {
+        if (_pendingRecovery is not { } files) return false;
+        _pendingRecovery = null;
+        string? fileArgument = _pendingFileArgument;
+        _pendingFileArgument = null;
+        bool restored = OfferRecovery(files);
         if (!restored && fileArgument is not null) TryLoad(fileArgument);
         _autosaveTimer?.Start();
         return restored;
@@ -76,11 +111,9 @@ public sealed partial class MainViewModel
 
     private void DeleteRecoveryFile() => _recovery?.TryDelete(_sessionId);
 
-    private bool OfferRecovery()
+    private bool OfferRecovery(IReadOnlyList<RecoveryFile> files)
     {
         if (_recovery is null) return false;
-        IReadOnlyList<RecoveryFile> files = _recovery.List(); // without live sessions' files (D-40)
-        if (files.Count == 0) return false;
         var recovery = new RecoveryViewModel(files, Restore,
             file => !_recovery.IsInUse(file.SessionId) && _recovery.TryDelete(file.SessionId));
         _dialogs.ShowRecovery(recovery);

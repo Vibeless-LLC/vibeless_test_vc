@@ -237,6 +237,64 @@ public sealed class RecoveryTests : IDisposable
     }
 
     [Fact]
+    public void BeginStartup_WithoutRecoveryFiles_OpensTheFileArgument_BeforeTheWindowIsShown()
+    {
+        // §11.6, D-40, P-6: no recovery files keeps the old order: the file is loaded before the first show.
+        string file = Path.Combine(_root, "arg.gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("A1", "7")]), file);
+        var vm = NewViewModel();
+        Assert.False(vm.BeginStartup(file)); // nothing pending
+        Assert.Equal("Gridline - arg.gridline", vm.Title);
+        Assert.True(_timer.Running);
+        Assert.False(vm.CompleteStartup()); // a no-op
+        Assert.Empty(_dialogs.Recoveries);
+    }
+
+    [Fact]
+    public void BeginStartup_WithRecoveryFiles_DefersEverything_UntilCompleteStartup_ThenOpensTheArgumentAfterTheDialog()
+    {
+        // §11.7, D-40: the main window is shown first; the dialog (its owned modal) and the file argument come after.
+        var planted = PlantRecovery("A1", "1", TimeSpan.Zero);
+        string file = Path.Combine(_root, "arg.gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("A1", "7")]), file);
+        var vm = NewViewModel();
+        string? titleWhileDialogOpen = null;
+        _dialogs.OnRecovery = _ => titleWhileDialogOpen = vm.Title;
+
+        Assert.True(vm.BeginStartup(file)); // recovery pending
+        Assert.Empty(_dialogs.Recoveries);
+        Assert.Equal("Gridline - Untitled", vm.Title);
+        Assert.False(_timer.Running);
+
+        Assert.False(vm.CompleteStartup()); // the fake closes the dialog without restoring
+        var dialog = Assert.Single(_dialogs.Recoveries);
+        Assert.Equal([planted.SessionId], dialog.Items.Select(i => i.File.SessionId));
+        Assert.Equal("Gridline - Untitled", titleWhileDialogOpen); // the argument opens after the dialog closes
+        Assert.Equal("Gridline - arg.gridline", vm.Title);
+        Assert.True(_timer.Running);
+
+        Assert.False(vm.CompleteStartup()); // only once
+        Assert.Single(_dialogs.Recoveries);
+    }
+
+    [Fact]
+    public void CompleteStartup_Restore_SkipsTheFileArgument()
+    {
+        var planted = PlantRecovery("B2", "restored", TimeSpan.Zero);
+        string file = Path.Combine(_root, "arg.gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("A1", "7")]), file);
+        _dialogs.OnRecovery = d => d.Items[0].RestoreCommand.Execute(null);
+        var vm = NewViewModel();
+
+        Assert.True(vm.BeginStartup(file));
+        Assert.True(vm.CompleteStartup());
+        Assert.Equal("restored", vm.Workbook.GetInput("B2"));
+        Assert.Equal("", vm.Workbook.GetInput("A1"));
+        Assert.Equal("Gridline - Untitled *", vm.Title);
+        Assert.Equal(planted.SessionId, vm.SessionId);
+    }
+
+    [Fact]
     public void Startup_ListsEveryRecoveryFile_NewestFirst_WithItsLastWriteTime_IgnoringOtherFiles()
     {
         var older = PlantRecovery("A1", "old", TimeSpan.FromHours(2));

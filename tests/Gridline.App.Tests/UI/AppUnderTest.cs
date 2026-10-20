@@ -79,8 +79,24 @@ internal sealed class AppUnderTest : IDisposable
         process.WaitForExit(10_000);
     }
 
-    /// <summary>The RecoveryDialog window (§11.7) if it is open, else null.</summary>
-    public AutomationElement? FindRecoveryDialog()
+    /// <summary>The RecoveryDialog (§11.7) if it is open, else null. It is an owned modal of the main window (D-40), so it
+    /// is looked for in the main window's modal windows first; UIA may also list an owned window as a top-level window or
+    /// as the main window's child, which the fallback covers.</summary>
+    public AutomationElement? FindRecoveryDialog() => FindRecoveryDialogModal() ?? FindRecoveryDialogAnywhere();
+
+    /// <summary>The RecoveryDialog as a modal window of the main window ("Gridline - ..."), else null.</summary>
+    public AutomationElement? FindRecoveryDialogModal()
+    {
+        foreach (var w in Application.GetAllTopLevelWindows(Automation))
+        {
+            if (!(w.Title ?? "").StartsWith("Gridline - ", StringComparison.Ordinal)) continue;
+            foreach (var modal in w.ModalWindows)
+                if (modal.Properties.AutomationId.ValueOrDefault == "RecoveryDialog") return modal;
+        }
+        return null;
+    }
+
+    private AutomationElement? FindRecoveryDialogAnywhere()
     {
         foreach (var w in Application.GetAllTopLevelWindows(Automation))
         {

@@ -48,7 +48,8 @@ public sealed class WpfDialogService : IDialogService
         return prompt.Choice;
     }
 
-    /// <summary>At startup the main window is not shown yet, so the dialog is unowned, centred and in the taskbar.</summary>
+    /// <summary>§11.7, D-40: shown after the main window has rendered, as its owned modal, centred on it. The unowned,
+    /// screen-centred fallback is only for a call without a loaded main window.</summary>
     public void ShowRecovery(ViewModels.RecoveryViewModel recovery)
     {
         var dialog = new RecoveryDialog(recovery);

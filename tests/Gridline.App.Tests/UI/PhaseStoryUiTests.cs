@@ -147,6 +147,9 @@ public sealed class PhaseStoryUiTests : IDisposable
         {
             AutomationElement? dialog = null;
             Retry(() => (dialog = app.FindRecoveryDialog()) is not null, "the RecoveryDialog is shown at startup");
+            // §11.7, D-40: the main window is shown first and the dialog is its owned modal.
+            Retry(() => app.FindRecoveryDialogModal() is not null, "the RecoveryDialog is a modal of the main window");
+            dialog = app.FindRecoveryDialogModal();
             Assert.NotNull(Find(dialog!, "RecoveryList"));
             Assert.NotNull(Find(dialog!, "RecoveryDiscard_" + session.ToString("N")));
             Assert.NotNull(Find(dialog!, "RecoveryClose"));
@@ -168,6 +171,35 @@ public sealed class PhaseStoryUiTests : IDisposable
             Assert.True(File.Exists(recoveryFile), "the restored session keeps the adopted recovery file");
         } // Dispose: WM_CLOSE, Don't Save, a clean exit
         Retry(() => !File.Exists(recoveryFile), "a clean exit deletes the adopted recovery file");
+    }
+
+    [Fact]
+    public void RecoveryDialog_IsAModalOfTheShownMainWindow_AndClosingItOpensTheFileArgument()
+    {
+        // §11.6, §11.7, D-40: with recovery files the main window is shown first (Untitled while the dialog is open), the
+        // dialog is its owned modal, and when nothing is restored the file argument opens after the dialog closes.
+        string path = Path.Combine(_dir, "arg.gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("A1", "=40+2")]), path);
+        string localAppData = Path.Combine(_dir, "LocalAppData");
+        string recoveryDir = Path.Combine(localAppData, "Gridline", "Recovery");
+        Directory.CreateDirectory(recoveryDir);
+        Guid planted = Guid.NewGuid();
+        string plantedPath = Path.Combine(recoveryDir, planted.ToString("D") + ".gridline");
+        GridlineFile.SaveToPath(Workbook.FromCells([new("B1", "left over")]), plantedPath);
+
+        using var app = LaunchWith(localAppData, null, path);
+        Window main = app.WaitForWindow(t => t == "Gridline - Untitled");
+        AutomationElement? dialog = null;
+        Retry(() => (dialog = app.FindRecoveryDialogModal()) is not null, "the RecoveryDialog is a modal of the main window");
+        Assert.Contains(main.ModalWindows, m => m.Properties.AutomationId.ValueOrDefault == "RecoveryDialog");
+        Assert.NotNull(Find(dialog!, "RecoveryRestore_" + planted.ToString("N")));
+        Assert.Equal("Gridline - Untitled", main.Title); // the argument waits for the dialog
+
+        Find(dialog!, "RecoveryClose").AsButton().Invoke();
+        Ui ui = Start(app, "Gridline - arg.gridline");
+        Assert.Null(app.FindRecoveryDialog());
+        WaitFor(() => ui.SelectionValue.Name, "N:42");
+        Assert.True(File.Exists(plantedPath), "Close keeps the file for the next startup");
     }
 
     [Fact]
