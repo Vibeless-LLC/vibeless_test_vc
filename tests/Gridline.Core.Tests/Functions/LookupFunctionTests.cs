@@ -361,6 +361,22 @@ public class LookupFunctionTests
     }
 
     [Fact]
+    public void Match_Descending_BlankKeysAdaptLikeSection63()
+    {
+        // A blank key compares as 0 against a number (§6.3, R66), so 9, 5, blank, -2 is descending.
+        var t = new DictionaryCells().Set("A1", 9).Set("A2", 5).Set("A4", -2);
+        Assert.Equal(N(2), Run("MATCH(3,A1:A4,-1)", t));               // smallest value >= 3 is 5
+        Assert.Equal(N(3), Run("MATCH(0,A1:A4,-1)", t));               // the blank A3 acts as 0
+        Assert.Equal(N(3), Run("MATCH(-1,A1:A4,-1)", t));              // 0 >= -1
+        Assert.Equal(N(3), Run("MATCH(Z9,A1:A4,-1)", t));              // a blank lookup value is 0 (R66)
+        Assert.Equal(N(4), Run("MATCH(-2,A1:A4,-1)", t));
+        Assert.Equal(NA, Run("MATCH(10,A1:A4,-1)", t));
+        var txt = new DictionaryCells().Set("A1", "c");                // "c", blank: the blank acts as "" (descending)
+        Assert.Equal(N(2), Run("MATCH(\"\",A1:A2,-1)", txt));
+        Assert.Equal(N(1), Run("MATCH(\"b\",A1:A2,-1)", txt));
+    }
+
+    [Fact]
     public void Match_Exact()
     {
         var t = Table();

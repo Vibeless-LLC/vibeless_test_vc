@@ -483,11 +483,60 @@ public class WorkbookStructureTests
     public void RewrittenFormulaTooLong_ThrowsInvalidOperation_AndChangesNothing()
     {
         string formula = "=" + string.Join("+", Enumerable.Repeat("A2", 10_000)); // 30,000 chars; #REF! makes it 60,000
-        var wb = Workbook.FromCells([P("A2", "1"), P("B1", formula)]);
+        var wb = Workbook.FromCells([P("A2", "1"), P("B1", formula)], [P("Rate", "$A$3"), P("Gone", "#REF!")]);
+        var names = wb.GetNames();
         var before = Snapshot(wb);
+        var recalc = wb.LastRecalc;
+        var log = new EventLog(wb);
         Assert.Throws<InvalidOperationException>(() => wb.DeleteRows(2, 1));
         Assert.Equal(before, Snapshot(wb));
+        Assert.Equal(names, wb.GetNames()); // Rate would have become $A$2: unchanged
+        Assert.Empty(log.Events);
+        Assert.Equal(recalc, wb.LastRecalc);
         Assert.False(wb.CanUndo);
+    }
+
+    [Fact]
+    public void RebuiltGraph_AfterDeleteRows_RecalculatesIncrementally()
+    {
+        var wb = Workbook.FromCells([P("A1", "1"), P("A2", "x"), P("A3", "3"), P("B4", "=A1+A3"), P("B5", "=SUM(A1:A4)")]);
+        wb.DeleteRows(2, 1);
+        Assert.Equal("=A1+A2", wb.GetInput("B3"));
+        Assert.Equal("=SUM(A1:A3)", wb.GetInput("B4"));
+        wb.SetCell("A2", "10"); // the moved 3
+        Assert.Equal(N(11), wb.GetValue("B3"));
+        Assert.Equal(N(11), wb.GetValue("B4"));
+        Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount);
+        wb.SetCell("A5", "7"); // below the shrunken range: no longer a precedent of anything
+        Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount);
+        wb.SetCell("A3", "4"); // inside SUM(A1:A3) only
+        Assert.Equal(N(15), wb.GetValue("B4"));
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount);
+    }
+
+    [Fact]
+    public void RebuiltGraph_AfterAColumnEdit_RecalculatesIncrementally()
+    {
+        var wb = Workbook.FromCells([P("A1", "2"), P("B1", "3"), P("C1", "=A1*B1"), P("D1", "=SUM(A1:B1)")]);
+        wb.DefineName("Rate", "$B$1");
+        wb.SetCell("E1", "=Rate+1");
+        wb.InsertColumns(2, 1); // B..E move to C..F
+        Assert.Equal("=A1*C1", wb.GetInput("D1"));
+        Assert.Equal("=SUM(A1:C1)", wb.GetInput("E1"));
+        Assert.Equal([P("Rate", "$C$1")], wb.GetNames());
+        wb.SetCell("C1", "5");
+        Assert.Equal(N(10), wb.GetValue("D1"));
+        Assert.Equal(N(7), wb.GetValue("E1"));
+        Assert.Equal(N(6), wb.GetValue("F1"));
+        Assert.Equal(3, wb.LastRecalc.EvaluatedFormulaCount);
+        wb.SetCell("B1", "100"); // the inserted column is inside SUM(A1:C1) only
+        Assert.Equal(N(107), wb.GetValue("E1"));
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount);
+        wb.DeleteColumns(1, 1);
+        wb.SetCell("B1", "1"); // the old C1, now B1
+        Assert.Equal("=#REF!*B1", wb.GetInput("C1"));
+        Assert.Equal(N(2), wb.GetValue("E1"));
+        Assert.Equal(3, wb.LastRecalc.EvaluatedFormulaCount);
     }
 
     // ---- R63 no-op, LastRecalc, R64 events ----

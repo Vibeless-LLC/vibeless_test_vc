@@ -36,7 +36,10 @@ public class UndoPropertyTests
             "=A1", "=B1", "=C1", "=A2",          // self- and mutual cycles depending on where they land
             "=SUM(A1:B1)", "=1+", "=SUM(", "=)", "=FOO(1)",
             "=$A$1+B$2", "=SUM($A1:C$2)", "=zz100000", "=SUM(ZY99999:$ZZ$100000)", // absolute, mixed, grid edge
-            "= rate * 2", "=SUM(Total)", "=x_1+A1", "=SUM(C2:A1)", "=B2+$C$1")); // names, a bottom-up range
+            "= rate * 2", "=SUM(Total)", "=x_1+A1", "=SUM(C2:A1)", "=B2+$C$1", // names, a bottom-up range
+            // R68 resized rectangles with names as range or sum_range (refreshed on SetNameTarget), and the current cell
+            "=SUMIF(A1:A2,\">0\",Total)", "=SUMIF(Total,\">0\",B1)", "=AVERAGEIF(A1:B1,\"<>\",C1)",
+            "=AVERAGEIF(rate,\"<>\",x_1)", "=ROW()+COLUMN()", "=ROW(B2)*COLUMN(Total)"));
 
     /// <summary>The address as written canonically, in lower case, or fully absolute.</summary>
     private static Gen<string> Spellings(string a)

@@ -26,6 +26,8 @@ internal sealed class StructureRewriter : IReferenceRewriter
     private readonly int _bound;
 
     /// <exception cref="ArgumentOutOfRangeException">Start or count is outside the valid range for the axis.</exception>
+    /// <remarks>Workbook.Restructure validates the R62 bounds first and reports them with the public parameter names;
+    /// these checks are a backstop for other callers (undo, redo and tests), not the user-facing validation (D-43).</remarks>
     public StructureRewriter(StructureAxis axis, bool insert, int start, int count)
     {
         _rows = axis == StructureAxis.Rows;
@@ -43,6 +45,36 @@ internal sealed class StructureRewriter : IReferenceRewriter
     public bool Changed { get; private set; }
 
     public void Reset() => Changed = false;
+
+    /// <summary>True when the edit changes or invalidates any reference in the formula <paramref name="root"/>, so it must
+    /// be reprinted; false when its text stays verbatim (§9.5). Walks the tree with the caller's
+    /// <paramref name="stack"/> (no recursion, R10) and allocates nothing for an unaffected formula, so Restructure
+    /// prints only the formulas that change (M-2). Leaves <see cref="Changed"/> reset.</summary>
+    public bool Affects(FormulaNode root, Stack<FormulaNode> stack)
+    {
+        stack.Clear();
+        stack.Push(root);
+        Reset();
+        while (stack.Count > 0 && !Changed)
+        {
+            switch (stack.Pop())
+            {
+                case CellRefNode c: Rewrite(c.Reference); break;
+                case RangeNode r: RewriteRange(r.Start, r.End); break;
+                case FunctionCallNode f:
+                    for (int i = f.Arguments.Count - 1; i >= 0; i--) stack.Push(f.Arguments[i]);
+                    break;
+                case UnaryNode u: stack.Push(u.Operand); break;
+                case PercentNode p: stack.Push(p.Operand); break;
+                case BinaryNode b: stack.Push(b.Right); stack.Push(b.Left); break;
+                case ParenNode g: stack.Push(g.Inner); break;
+            }
+        }
+        bool affected = Changed;
+        stack.Clear();
+        Reset();
+        return affected;
+    }
 
     /// <summary>The position of a cell (or a single reference coordinate) after the edit; -1 when it is removed by a
     /// delete or pushed past the bound by an insert.</summary>

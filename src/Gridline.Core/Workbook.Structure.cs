@@ -62,6 +62,7 @@ public sealed partial class Workbook
         bool moves = false;
         var removed = ImmutableArray.CreateBuilder<CellEdit>();
         var rewrites = ImmutableArray.CreateBuilder<CellEdit>();
+        var walk = new Stack<FormulaNode>();
         foreach (var (key, entry) in _cells)
         {
             var cell = CellKey.Unpack(key);
@@ -76,6 +77,7 @@ public sealed partial class Workbook
             }
             if (to != map.PositionOf(cell)) moves = true;
             if (entry.Formula?.Root is not { } root) continue; // constants and #PARSE! formulas stay verbatim (R39)
+            if (!map.Affects(root, walk)) continue; // §9.5: no changed reference, text kept verbatim (and not printed)
             map.Reset();
             string printed = FormulaPrinter.Print(root, map, _nameCasing);
             if (!map.Changed) continue; // §9.5: no changed reference, text kept verbatim

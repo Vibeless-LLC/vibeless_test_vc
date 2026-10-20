@@ -11,6 +11,10 @@ public class DateFunctionTests
 
     private const double Max = 2958465; // 9999-12-31
 
+    /// <summary>Runs a formula built by interpolation, formatting numbers with the invariant culture (a culture with a
+    /// decimal comma would otherwise produce another formula).</summary>
+    private static CellValue RunInvariant(FormattableString formula) => Run(FormattableString.Invariant(formula));
+
     [Theory]
     [InlineData("DATE(2024,1)")]
     [InlineData("DATE(2024,1,1,1)")]
@@ -45,11 +49,11 @@ public class DateFunctionTests
     [InlineData(2958465, 9999, 12, 31)]
     public void YearMonthDay_OfSerial(double serial, double y, double m, double d)
     {
-        Assert.Equal(N(y), Run($"YEAR({serial})"));
-        Assert.Equal(N(m), Run($"MONTH({serial})"));
-        Assert.Equal(N(d), Run($"DAY({serial})"));
+        Assert.Equal(N(y), RunInvariant($"YEAR({serial})"));
+        Assert.Equal(N(m), RunInvariant($"MONTH({serial})"));
+        Assert.Equal(N(d), RunInvariant($"DAY({serial})"));
         if (serial >= 1) // DATE inverts it (serial 0 is day 0 of January, covered in Date_Serial1900Calendar)
-            Assert.Equal(N(serial), Run($"DATE({y},{m},{d})"));
+            Assert.Equal(N(serial), RunInvariant($"DATE({y},{m},{d})"));
     }
 
     [Theory]
@@ -78,10 +82,10 @@ public class DateFunctionTests
         {
             bool sample = serial <= 800 || serial % 101 == 0 || serial >= Max - 800 || (date.Month == 2 && date.Day >= 28 && date.Year % 4 == 0 && date.Year % 100 < 8);
             if (!sample) continue;
-            Assert.Equal(N(date.Year), Run($"YEAR({serial})"));
-            Assert.Equal(N(date.Month), Run($"MONTH({serial})"));
-            Assert.Equal(N(date.Day), Run($"DAY({serial})"));
-            Assert.Equal(N(serial), Run($"DATE({date.Year},{date.Month},{date.Day})"));
+            Assert.Equal(N(date.Year), RunInvariant($"YEAR({serial})"));
+            Assert.Equal(N(date.Month), RunInvariant($"MONTH({serial})"));
+            Assert.Equal(N(date.Day), RunInvariant($"DAY({serial})"));
+            Assert.Equal(N(serial), RunInvariant($"DATE({date.Year},{date.Month},{date.Day})"));
         }
     }
 
@@ -232,10 +236,10 @@ public class DateFunctionTests
     [InlineData(2958465, 6, 5, 4)]  // 9999-12-31 is a Friday
     public void Weekday_Types(double serial, double t1, double t2, double t3)
     {
-        Assert.Equal(N(t1), Run($"WEEKDAY({serial})"));
-        Assert.Equal(N(t1), Run($"WEEKDAY({serial},1)"));
-        Assert.Equal(N(t2), Run($"WEEKDAY({serial},2)"));
-        Assert.Equal(N(t3), Run($"WEEKDAY({serial},3)"));
+        Assert.Equal(N(t1), RunInvariant($"WEEKDAY({serial})"));
+        Assert.Equal(N(t1), RunInvariant($"WEEKDAY({serial},1)"));
+        Assert.Equal(N(t2), RunInvariant($"WEEKDAY({serial},2)"));
+        Assert.Equal(N(t3), RunInvariant($"WEEKDAY({serial},3)"));
     }
 
     [Theory]
