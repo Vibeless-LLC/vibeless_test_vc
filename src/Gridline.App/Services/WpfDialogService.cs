@@ -47,4 +47,17 @@ public sealed class WpfDialogService : IDialogService
         prompt.ShowDialog();
         return prompt.Choice;
     }
+
+    /// <summary>At startup the main window is not shown yet, so the dialog is unowned, centred and in the taskbar.</summary>
+    public void ShowRecovery(ViewModels.RecoveryViewModel recovery)
+    {
+        var dialog = new RecoveryDialog(recovery);
+        if (Owner is { } owner)
+        {
+            dialog.Owner = owner;
+            dialog.ShowInTaskbar = false;
+        }
+        else dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        dialog.ShowDialog();
+    }
 }

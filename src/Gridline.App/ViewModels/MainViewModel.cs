@@ -7,7 +7,7 @@ namespace Gridline.App.ViewModels;
 /// <summary>
 /// The main window's ViewModel (§11): owns the <see cref="Core.Workbook"/>, the file path, the title and the menu
 /// commands. Partials: Selection (active cell and selection), Editing (§11.4), Files (§11.5 file commands and the
-/// unsaved-changes prompt) and Clipboard (§11.6). Built-in WPF binding only.
+/// unsaved-changes prompt), Clipboard (§11.6) and Recovery (§11.6 autosave and recovery). Built-in WPF binding only.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -16,12 +16,19 @@ public sealed partial class MainViewModel : ObservableObject
     private Workbook _workbook;
     private string? _filePath;
 
-    public MainViewModel(IDialogService dialogs, IClipboardService clipboard)
+    /// <param name="dialogs">Modal UI.</param>
+    /// <param name="clipboard">The system clipboard.</param>
+    /// <param name="recovery">Where autosave writes recovery files; null disables autosave and recovery.</param>
+    /// <param name="autosaveTimer">The autosave clock; null means no ticks (tests call <see cref="Autosave"/>).</param>
+    public MainViewModel(IDialogService dialogs, IClipboardService clipboard, IRecoveryStore? recovery = null, IAutosaveTimer? autosaveTimer = null)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
         ArgumentNullException.ThrowIfNull(clipboard);
         _dialogs = dialogs;
         _clipboard = clipboard;
+        _recovery = recovery;
+        _autosaveTimer = autosaveTimer;
+        if (_autosaveTimer is not null) _autosaveTimer.Tick += OnAutosaveTick;
         _workbook = new Workbook();
         _workbook.CellsChanged += OnCellsChanged;
 
@@ -48,9 +55,10 @@ public sealed partial class MainViewModel : ObservableObject
     public string DocumentName => _filePath is null ? "Untitled" : Path.GetFileName(_filePath);
 
     /// <summary>§11.1: <c>Gridline - &lt;file name or Untitled&gt;</c>, with <c> *</c> appended when dirty.</summary>
-    public string Title => "Gridline - " + DocumentName + (_workbook.IsDirty ? " *" : "");
+    public string Title => "Gridline - " + DocumentName + (IsDirty ? " *" : "");
 
-    public bool IsDirty => _workbook.IsDirty;
+    /// <summary><see cref="Workbook.IsDirty"/>, or true for a restored recovery file until it is saved (R50).</summary>
+    public bool IsDirty => _workbook.IsDirty || _restoredUnsaved;
 
     public RelayCommand NewCommand { get; }
     public RelayCommand OpenCommand { get; }
@@ -70,12 +78,15 @@ public sealed partial class MainViewModel : ObservableObject
     public bool OpenAtStartup(string path) => TryLoad(path);
 
     /// <summary>Makes <paramref name="workbook"/> the shown workbook, with <paramref name="filePath"/> (null = Untitled), and
-    /// resets the selection to A1.</summary>
+    /// resets the selection to A1. The old workbook's recovery file is deleted: it was saved, or the user chose Don't
+    /// Save (§11.5), so nothing is left to recover (D-40).</summary>
     internal void Adopt(Workbook workbook, string? filePath)
     {
         ArgumentNullException.ThrowIfNull(workbook);
         IsEditing = false; // an open edit belongs to the old workbook
         ForgetInternalCopy(); // so is the copied range (§11.6, D-39)
+        DeleteRecoveryFile();
+        _restoredUnsaved = false;
         _workbook.CellsChanged -= OnCellsChanged;
         _workbook = workbook;
         _workbook.CellsChanged += OnCellsChanged;
@@ -110,7 +121,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>Title, dirty flag and Undo/Redo availability. Called after every change of the workbook's history
     /// position or saved mark (edits through CellsChanged, Undo, Redo, Save, Adopt), so the title's <c> *</c> always
-    /// follows <see cref="Workbook.IsDirty"/>.</summary>
+    /// follows <see cref="IsDirty"/> (a Restore also refreshes it).</summary>
     private void RefreshDocumentState()
     {
         OnPropertyChanged(nameof(Title));

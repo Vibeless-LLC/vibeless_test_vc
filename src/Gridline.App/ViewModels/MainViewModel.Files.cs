@@ -61,7 +61,7 @@ public sealed partial class MainViewModel
     private bool ConfirmUnsavedChanges()
     {
         if (!CommitPendingEdit()) return false;
-        if (!_workbook.IsDirty) return true;
+        if (!IsDirty) return true;
         return _dialogs.PromptUnsavedChanges(DocumentName) switch
         {
             UnsavedChangesChoice.Save => Save(),
@@ -105,6 +105,8 @@ public sealed partial class MainViewModel
             return false;
         }
         _workbook.MarkSaved(); // SaveToPath does not (§8.4); the title loses its " *"
+        _restoredUnsaved = false;
+        DeleteRecoveryFile(); // §11.6: a successful Save deletes the recovery file
         SetFilePath(fullPath);
         RefreshDocumentState();
         return true;

@@ -35,6 +35,7 @@ public partial class MainWindow : Window, IEditTextHistory
             Close();
         };
         Closing += OnClosing;
+        Closed += (_, _) => _viewModel.EndSession(); // a clean exit deletes the recovery file (§11.6, R48)
         Loaded += (_, _) => Keyboard.Focus(SheetGrid);
     }
 

@@ -1,0 +1,40 @@
+<Window x:Class="Gridline.App.RecoveryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gridline Recovery"
+        AutomationProperties.AutomationId="RecoveryDialog"
+        SizeToContent="WidthAndHeight" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner">
+    <!-- §11.6, §11.7, R50: one row per recovery file with its last-write time, Restore and Discard; Close (Esc, the close
+         button) leaves the remaining files for the next startup. Row and button AutomationIds are not normative. -->
+    <StackPanel Margin="16" MinWidth="460">
+        <TextBlock TextWrapping="Wrap" MaxWidth="560" Margin="0,0,0,12"
+                   Text="Gridline found unsaved work from an earlier session. Restore a file to continue with it, or discard it." />
+        <ItemsControl ItemsSource="{Binding Items}" AutomationProperties.AutomationId="RecoveryList" Focusable="False">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding LastWriteText, StringFormat=Last saved {0}}" />
+                            <TextBlock Text="{Binding Status}" Foreground="DarkRed" TextWrapping="Wrap" MaxWidth="360" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Restore" MinWidth="80" Margin="0,0,8,0" VerticalAlignment="Top"
+                                Command="{Binding RestoreCommand}"
+                                AutomationProperties.AutomationId="{Binding RestoreAutomationId}" />
+                        <Button Grid.Column="2" Content="Discard" MinWidth="80" VerticalAlignment="Top"
+                                Command="{Binding DiscardCommand}"
+                                AutomationProperties.AutomationId="{Binding DiscardAutomationId}" />
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Content="Close" MinWidth="80" HorizontalAlignment="Right" Margin="0,8,0,0" IsCancel="True"
+                AutomationProperties.AutomationId="RecoveryClose" />
+    </StackPanel>
+</Window>

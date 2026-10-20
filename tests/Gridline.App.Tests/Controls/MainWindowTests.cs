@@ -124,4 +124,26 @@ public class MainWindowTests
         Assert.True(closed);
         Assert.Single(dialogs.Prompts); // the close that Exit requests does not prompt again
     });
+
+    [Fact]
+    public void ClosingTheWindow_AfterDontSave_IsACleanExit_ThatDeletesTheRecoveryFile() => RunSta(() =>
+    {
+        string dir = NewTempDirectory();
+        try
+        {
+            var store = new DirectoryRecoveryStore(dir);
+            var timer = new FakeAutosaveTimer();
+            var vm = new MainViewModel(new FakeDialogService { DefaultPromptAnswer = UnsavedChangesChoice.DontSave }, new FakeClipboardService(), store, timer);
+            vm.Startup(null);
+            var window = Offscreen(vm);
+            vm.Workbook.SetCell("A1", "1");
+            timer.Fire();
+            Assert.True(File.Exists(vm.RecoveryPath));
+
+            window.Close(); // the close button: prompt, Don't Save, closed (§11.6, R48)
+            Assert.False(File.Exists(vm.RecoveryPath));
+            Assert.False(timer.Running);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    });
 }

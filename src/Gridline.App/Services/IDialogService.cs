@@ -10,8 +10,8 @@ public enum UnsavedChangesChoice
 
 /// <summary>
 /// The seam between ViewModels and modal UI, so ViewModel tests run without windows (a fake records the calls): error
-/// messages, the Win32 Open and Save As file dialogs with a <c>*.gridline</c> filter, and the Save / Don't Save / Cancel
-/// prompt (§11.5, R45).
+/// messages, the Win32 Open and Save As file dialogs with a <c>*.gridline</c> filter, the Save / Don't Save / Cancel
+/// prompt (§11.5, R45) and the RecoveryDialog (§11.6, R50).
 /// </summary>
 public interface IDialogService
 {
@@ -27,4 +27,7 @@ public interface IDialogService
 
     /// <summary>The R45 prompt for a dirty workbook named <paramref name="documentName"/> (file name or Untitled).</summary>
     UnsavedChangesChoice PromptUnsavedChanges(string documentName);
+
+    /// <summary>The RecoveryDialog (§11.6, R50) over <paramref name="recovery"/>; returns when it closes.</summary>
+    void ShowRecovery(ViewModels.RecoveryViewModel recovery);
 }

@@ -47,6 +47,28 @@ internal sealed class FakeDialogService : IDialogService
         Prompts.Add(documentName);
         return PromptAnswers.Count > 0 ? PromptAnswers.Dequeue() : DefaultPromptAnswer;
     }
+
+    /// <summary>Every RecoveryDialog shown, in order.</summary>
+    public List<RecoveryViewModel> Recoveries { get; } = [];
+
+    /// <summary>What the "user" does in the RecoveryDialog (null: closes it at once).</summary>
+    public Action<RecoveryViewModel>? OnRecovery { get; set; }
+
+    public void ShowRecovery(RecoveryViewModel recovery)
+    {
+        Recoveries.Add(recovery);
+        OnRecovery?.Invoke(recovery);
+    }
+}
+
+/// <summary>An autosave clock driven by the test: <see cref="Fire"/> raises one tick.</summary>
+internal sealed class FakeAutosaveTimer : IAutosaveTimer
+{
+    public event EventHandler? Tick;
+    public bool Running { get; private set; }
+    public void Start() => Running = true;
+    public void Stop() => Running = false;
+    public void Fire() => Tick?.Invoke(this, EventArgs.Empty);
 }
 
 /// <summary>An in-memory clipboard; <see cref="Locked"/> makes every call fail as if another process held it.</summary>
