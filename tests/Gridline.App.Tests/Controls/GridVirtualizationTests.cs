@@ -263,4 +263,21 @@ public class GridVirtualizationTests
         var unnamed = UIElementAutomationPeer.CreatePeerForElement(Layout(new RecordingSource()));
         Assert.Equal("Grid", unnamed.GetAutomationId());
     });
+
+    [Fact]
+    public void AutomationPeer_ItemStatus_ReportsRenderedFramesOfTheSource_TheP6Signal() => RunSta(() =>
+    {
+        var empty = new GridControl();
+        Assert.Equal("", UIElementAutomationPeer.CreatePeerForElement(empty).GetItemStatus()); // no source, no frame
+
+        var grid = new GridControl { Source = new RecordingSource() };
+        var peer = UIElementAutomationPeer.CreatePeerForElement(grid);
+        Assert.Equal(0, grid.RenderCount);
+        Assert.Equal("", peer.GetItemStatus());
+        RenderFrame(grid);
+        Assert.Equal("Rendered:" + grid.RenderCount, peer.GetItemStatus());
+        Assert.Equal("Rendered:1", peer.GetItemStatus());
+        RenderFrame(grid);
+        Assert.Equal("Rendered:2", peer.GetItemStatus());
+    });
 }

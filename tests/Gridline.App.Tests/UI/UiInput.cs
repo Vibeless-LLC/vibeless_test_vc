@@ -32,6 +32,19 @@ internal static class UiInput
         finally { Keyboard.Release(modifier); }
     }
 
+    /// <summary>Ctrl plus a letter key (Ctrl+C, Ctrl+V, Ctrl+S).</summary>
+    public static void Ctrl(VirtualKeyShort key) => Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, key);
+
+    /// <summary>Opens a menu and clicks one of its items with the mouse. A click returns at once even when the item opens
+    /// a modal dialog (a UIA Invoke could wait for the dialog).</summary>
+    public static void ClickMenu(Window window, string menuId, string itemId)
+    {
+        RaiseToTop(window);
+        var menu = Find(window, menuId).AsMenuItem();
+        menu.Click();
+        Find(window, itemId).AsMenuItem().Click();
+    }
+
     /// <summary>Clicks the window's title bar so it is the foreground window and receives the injected keys (SetForeground
     /// alone is not always honoured when the test host does not own the foreground); WPF restores focus to the grid.</summary>
     public static void Activate(Window window, AutomationElement grid)

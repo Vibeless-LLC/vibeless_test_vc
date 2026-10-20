@@ -34,13 +34,60 @@ internal sealed class AppUnderTest : IDisposable
     public Application Application { get; }
     public UIA3Automation Automation { get; } = new();
 
-    private AppUnderTest(Application application) => Application = application;
+    /// <summary>The <c>LOCALAPPDATA</c> the app was started with; its recovery files are in
+    /// <see cref="RecoveryDirectory"/> (§11.6, R51).</summary>
+    public string LocalAppData { get; }
 
-    public static AppUnderTest Launch(params string[] args)
+    public string RecoveryDirectory => Path.Combine(LocalAppData, "Gridline", "Recovery");
+
+    private readonly string? _ownedLocalAppData;
+
+    private AppUnderTest(Application application, string localAppData, string? owned)
     {
+        Application = application;
+        LocalAppData = localAppData;
+        _ownedLocalAppData = owned;
+    }
+
+    /// <summary>Starts the app with <paramref name="args"/> and a fresh, empty <c>LOCALAPPDATA</c> of its own (deleted in
+    /// Dispose), so no test sees or leaves recovery files in the real profile and no RecoveryDialog appears.</summary>
+    public static AppUnderTest Launch(params string[] args) => LaunchWith(null, null, args);
+
+    /// <summary>Starts the app with <c>LOCALAPPDATA</c> = <paramref name="localAppData"/> (null: a fresh owned temp
+    /// directory) and, when given, <c>GRIDLINE_AUTOSAVE_INTERVAL_MS</c> = <paramref name="autosaveIntervalMs"/> (R51).</summary>
+    public static AppUnderTest LaunchWith(string? localAppData, int? autosaveIntervalMs, params string[] args)
+    {
+        string? owned = null;
+        if (localAppData is null)
+        {
+            owned = localAppData = Path.Combine(Path.GetTempPath(), "gridline-app-tests", "lad-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(owned);
+        }
         var psi = new ProcessStartInfo(ExePath) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };
         foreach (string a in args) psi.ArgumentList.Add(a);
-        return new AppUnderTest(Application.Launch(psi));
+        psi.Environment["LOCALAPPDATA"] = localAppData;
+        if (autosaveIntervalMs is { } ms) psi.Environment["GRIDLINE_AUTOSAVE_INTERVAL_MS"] = ms.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        else psi.Environment.Remove("GRIDLINE_AUTOSAVE_INTERVAL_MS");
+        return new AppUnderTest(Application.Launch(psi), localAppData, owned);
+    }
+
+    /// <summary>Ends the process at once, as a crash would: no prompt, no clean exit, recovery files stay.</summary>
+    public void Kill()
+    {
+        using var process = Process;
+        process.Kill();
+        process.WaitForExit(10_000);
+    }
+
+    /// <summary>The RecoveryDialog window (§11.7) if it is open, else null.</summary>
+    public AutomationElement? FindRecoveryDialog()
+    {
+        foreach (var w in Application.GetAllTopLevelWindows(Automation))
+        {
+            if (w.Properties.AutomationId.ValueOrDefault == "RecoveryDialog") return w;
+            if (w.FindFirstChild(cf => cf.ByAutomationId("RecoveryDialog")) is { } child) return child;
+        }
+        return null;
     }
 
     /// <summary>The top-level window whose title satisfies <paramref name="predicate"/>, waiting up to <see cref="UiTimeout"/>.</summary>
@@ -137,6 +184,11 @@ internal sealed class AppUnderTest : IDisposable
         {
             Application.Dispose();
             Automation.Dispose();
+            if (_ownedLocalAppData is not null)
+            {
+                try { Directory.Delete(_ownedLocalAppData, recursive: true); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort */ }
+            }
         }
     }
 }

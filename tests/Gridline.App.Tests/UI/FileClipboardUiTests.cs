@@ -32,18 +32,6 @@ public sealed class FileClipboardUiTests : IDisposable
         return ui;
     }
 
-    /// <summary>Opens a menu and clicks one of its items with the mouse. A click returns at once even when the item opens
-    /// a modal dialog (a UIA Invoke could wait for the dialog).</summary>
-    private static void ClickMenu(Window window, string menuId, string itemId)
-    {
-        RaiseToTop(window);
-        var menu = Find(window, menuId).AsMenuItem();
-        menu.Click();
-        Find(window, itemId).AsMenuItem().Click();
-    }
-
-    private static void Ctrl(VirtualKeyShort key) => Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, key);
-
     private static AutomationElement WaitForPrompt(AppUnderTest app)
     {
         AutomationElement? prompt = null;

@@ -25,6 +25,14 @@ internal sealed class GridAutomationPeer(GridControl owner) : FrameworkElementAu
         return string.IsNullOrEmpty(name) ? "Sheet" : name;
     }
 
+    /// <summary>The P-6 rendered signal (§12, D-40; not normative): <c>Rendered:&lt;n&gt;</c> once the grid has drawn
+    /// <c>n</c> &gt;= 1 frames of its source, empty before the first. A file argument is loaded before the window is
+    /// shown (R44), so the first frame already shows the loaded workbook.</summary>
+    internal static string RenderedStatus(GridControl grid) =>
+        grid.Source is null || grid.RenderCount == 0 ? "" : "Rendered:" + grid.RenderCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    protected override string GetItemStatusCore() => RenderedStatus((GridControl)Owner);
+
     protected override bool IsKeyboardFocusableCore() => true;
 
     protected override bool IsContentElementCore() => true;

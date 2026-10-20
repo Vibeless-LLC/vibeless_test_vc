@@ -101,6 +101,9 @@ public sealed partial class GridControl : FrameworkElement
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         LastRenderedCellCount = GridRenderer.Draw(dc, RenderSize, v, Source, pixelsPerDip);
         LastRenderedRange = v;
+        string before = GridAutomationPeer.RenderedStatus(this);
         RenderCount++;
+        if (AutomationPeer.ListenerExists(AutomationEvents.PropertyChanged) && UIElementAutomationPeer.FromElement(this) is { } peer)
+            peer.RaisePropertyChangedEvent(System.Windows.Automation.AutomationElementIdentifiers.ItemStatusProperty, before, GridAutomationPeer.RenderedStatus(this));
     }
 }
