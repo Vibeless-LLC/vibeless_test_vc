@@ -14,13 +14,14 @@ public readonly record struct RecalcStats(int EvaluatedFormulaCount);
 /// <summary>Arguments of <see cref="Workbook.CellsChanged"/> (§9.1, R23).</summary>
 public sealed class CellsChangedEventArgs : EventArgs
 {
+    /// <summary>Wraps <paramref name="addresses"/> read-only (§9.1). A <c>string[]</c> is wrapped without copying (the caller must not mutate it afterwards); any other list is copied.</summary>
     public CellsChangedEventArgs(IReadOnlyList<string> addresses)
     {
         ArgumentNullException.ThrowIfNull(addresses);
-        Addresses = addresses;
+        Addresses = Array.AsReadOnly(addresses as string[] ?? [.. addresses]);
     }
 
-    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once.</summary>
+    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once. Read-only: casting to <see cref="IList{T}"/> yields a read-only list.</summary>
     public IReadOnlyList<string> Addresses { get; }
 }
 
@@ -54,7 +55,8 @@ public sealed class Workbook
 
     // Per-call scratch, reused so an edit allocates no whole-workbook structures (P-3).
     private readonly CellAddress[] _changedOne = new CellAddress[1];
-    private readonly List<(Entry Entry, CellValue OldValue)> _undo = [];
+    private const int UndoRetainCapacity = 1024; // entries; a larger log (huge recalc) is dropped, not retained
+    private List<(Entry Entry, CellValue OldValue)> _undo = [];
     private bool _logWrites;
 
     public Workbook() : this(BuiltInFunctionTable.Default) { }
@@ -153,7 +155,8 @@ public sealed class Workbook
         finally
         {
             _logWrites = false;
-            _undo.Clear();
+            if (_undo.Capacity > UndoRetainCapacity) _undo = []; // release the big backing array
+            else _undo.Clear();
         }
 
         LastRecalc = new RecalcStats(result.EvaluatedFormulaCount);
@@ -176,7 +179,7 @@ public sealed class Workbook
     {
         var keys = new int[_cells.Count];
         _cells.Keys.CopyTo(keys, 0);
-        return ToSortedAddresses(keys);
+        return Array.AsReadOnly(ToSortedAddresses(keys));
     }
 
     private static CellAddress ParseAddress(string? address, string paramName)
@@ -213,18 +216,20 @@ public sealed class Workbook
         return ToSortedAddresses(keys);
     }
 
-    /// <summary>Sorts packed keys row-major, drops duplicates and formats them canonically.</summary>
+    /// <summary>Sorts packed keys row-major (projected key <c>row &lt;&lt; 10 | column</c>, column &lt; 1024), drops duplicates and formats them canonically. Reuses <paramref name="keys"/> as the sort buffer.</summary>
     private static string[] ToSortedAddresses(int[] keys)
     {
-        Array.Sort(keys, static (a, b) =>
-        {
-            int c = CellKey.Row(a).CompareTo(CellKey.Row(b));
-            return c != 0 ? c : CellKey.Column(a).CompareTo(CellKey.Column(b));
-        });
-        var result = new List<string>(keys.Length);
+        for (int i = 0; i < keys.Length; i++) keys[i] = (CellKey.Row(keys[i]) << 10) | CellKey.Column(keys[i]);
+        Array.Sort(keys);
+        int unique = 0;
         for (int i = 0; i < keys.Length; i++)
-            if (i == 0 || keys[i] != keys[i - 1]) result.Add(CellKey.Unpack(keys[i]).ToString());
-        return [.. result];
+            if (i == 0 || keys[i] != keys[i - 1]) unique++;
+        var result = new string[unique];
+        int n = 0;
+        for (int i = 0; i < keys.Length; i++)
+            if (i == 0 || keys[i] != keys[i - 1])
+                result[n++] = new CellAddress(keys[i] & 1023, keys[i] >> 10).ToString();
+        return result;
     }
 
     /// <summary>The store the dependency graph recalculates against; kept private so the public surface stays §9.1.</summary>

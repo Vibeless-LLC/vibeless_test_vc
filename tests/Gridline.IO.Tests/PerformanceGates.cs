@@ -6,13 +6,13 @@ using Xunit.Abstractions;
 namespace Gridline.IO.Tests;
 
 /// <summary>Serialises the performance gates (and keeps them away from other test classes) so that timings and
-/// the P-7 memory reading are not disturbed by parallel tests.</summary>
+/// the P-7 memory reading are not disturbed by parallel tests in this assembly (cross-assembly contention: DECISIONS D-30).</summary>
 [CollectionDefinition("Performance", DisableParallelization = true)]
 public class PerformanceCollection;
 
 /// <summary>
-/// The Phase 1 release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
-/// P-6 (GUI) is out of scope for Phase 1. Budgets are defined for Release builds, so the gates are skipped in Debug.
+/// The release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
+/// P-6 (GUI) belongs with the App phase. Budgets are defined for Release builds, so the gates are skipped in Debug.
 /// Method: one warm-up, then the median of 5 runs (P-3: median of 1,000 edits per run, median of 5 runs).
 /// Fixtures follow ruling R32 and are built in code. Budgets are never relaxed; optimise the hot path instead.
 /// </summary>
@@ -190,6 +190,7 @@ public class PerformanceGates(ITestOutputHelper output)
         finally { DeleteQuietly(path); }
     }
 
+    /// <summary>P-7 (§12) is measured in-host, see DECISIONS D-30 for why that is reliable and the measured headroom.</summary>
     [Fact(Skip = ReleaseOnly)]
     public void P7_Load100kFormulas_Within5s_And600MB()
     {

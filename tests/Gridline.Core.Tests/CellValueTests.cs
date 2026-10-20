@@ -16,6 +16,18 @@ public class CellValueTests
         Assert.Equal("#PARSE!", ErrorCodes.Parse);
     }
 
+    [Theory]
+    [InlineData("#div/0!", "#DIV/0!")]
+    [InlineData("#N/a", "#N/A")]
+    [InlineData("#Parse!", "#PARSE!")]
+    public void ErrorCodes_TryGetCanonical_NormalisesCase(string input, string expected)
+    {
+        Assert.True(ErrorCodes.TryGetCanonical(input, out var canonical));
+        Assert.Equal(expected, canonical);
+        Assert.False(ErrorCodes.TryGetCanonical("#null!", out _));
+        Assert.False(ErrorCodes.TryGetCanonical(null, out _));
+    }
+
     [Fact]
     public void ErrorCodes_IsKnown()
     {
@@ -23,6 +35,22 @@ public class CellValueTests
         Assert.False(ErrorCodes.IsKnown("bad"));
         Assert.False(ErrorCodes.IsKnown("#null!"));
         Assert.False(ErrorCodes.IsKnown(null!));
+    }
+
+    // §8.3: EscapeText escapes exactly backslash, tab, LF, CR.
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("plain é €", "plain é €")]
+    [InlineData("a\\b", "a\\\\b")]
+    [InlineData("a\tb", "a\\tb")]
+    [InlineData("a\nb", "a\\nb")]
+    [InlineData("a\rb", "a\\rb")]
+    [InlineData("\\\t\n\r", "\\\\\\t\\n\\r")]
+    [InlineData("\\t", "\\\\t")]
+    public void EscapeText_EscapesBackslashTabLfCr(string input, string expected)
+    {
+        Assert.Equal(expected, CellValue.EscapeText(input));
+        Assert.Equal("T:" + expected, CellValue.FromText(input).ToCanonicalString());
     }
 
     [Fact]

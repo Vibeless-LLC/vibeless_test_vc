@@ -45,24 +45,33 @@ public static class GridlineFile
         byte[] bytes = GridlineSerializer.Serialize(workbook); // a serialization failure never touches the disk
 
         string tmp = "";
+        bool replaced = false;
         try
         {
+            if (path[^1] == Path.DirectorySeparatorChar || path[^1] == Path.AltDirectorySeparatorChar)
+                throw new IOException($"'{path}' ends with a directory separator and names no file.");
             string full = Path.GetFullPath(path);
             string dir = Path.GetDirectoryName(full) ?? throw new IOException($"'{path}' has no parent directory.");
-            tmp = Path.Combine(dir, $"{Path.GetFileName(full)}.{Guid.NewGuid():N}.tmp");
+            // Fixed-length name independent of the target's, so a valid long target name cannot overflow the limit.
+            string candidate = Path.Combine(dir, $".gl-{Guid.NewGuid():N}.tmp");
 
-            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var fs = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
+                tmp = candidate; // only a file this call created (CreateNew succeeded) may be deleted in the finally
                 fs.Write(bytes);
                 fs.Flush(flushToDisk: true);
             }
             beforeReplace?.Invoke(tmp);
             File.Move(tmp, full, overwrite: true);
+            replaced = true;
         }
-        catch (Exception ex) when (beforeReplace is not null || IsIoFailure(ex))
+        catch (Exception ex) when (IsIoFailure(ex))
         {
-            TryDelete(tmp);
             throw new GridlineIOException($"Cannot write '{path}': {ex.Message}", ex);
+        }
+        finally
+        {
+            if (!replaced) TryDelete(tmp); // every failure path, whatever the exception type
         }
     }
 

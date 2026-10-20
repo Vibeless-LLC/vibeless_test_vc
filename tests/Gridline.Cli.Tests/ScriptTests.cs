@@ -235,6 +235,160 @@ public sealed class ScriptTests : IDisposable
         Assert.DoesNotContain((byte)'\r', b);
     }
 
+    private sealed class FailAfterStream(int okWrites) : Stream
+    {
+        private int _writes;
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            if (++_writes > okWrites) throw new IOException("broken pipe");
+        }
+    }
+
+    // §10.1, §10.3: a flush failure mid-script never escapes Run; exit 4 if an ERR line was already produced, else 1.
+    [Fact]
+    public void BrokenPipeMidScript_AfterErrLine_Exits4()
+    {
+        var e = new MemoryStream();
+        int code = CliApp.Run(["script"], new StringReader("GET\nSET A1 1\nGET A1\n"), new FailAfterStream(1), e);
+        Assert.Equal(4, code);
+        string err = Encoding.UTF8.GetString(e.ToArray());
+        Assert.Equal("error: cannot write output: broken pipe\n", err);
+    }
+
+    [Fact]
+    public void BrokenPipeMidScript_WithoutErrLine_Exits1WithOutputMessage()
+    {
+        var e = new MemoryStream();
+        int code = CliApp.Run(["script"], new StringReader("SET A1 1\nGET A1\nGET A1\n"), new FailAfterStream(1), e);
+        Assert.Equal(1, code);
+        string err = Encoding.UTF8.GetString(e.ToArray());
+        Assert.Equal("error: cannot write output: broken pipe\n", err);
+    }
+
+    // R31: exit 4 only if an ERR line was delivered; here the failing flush is the one carrying the first ERR.
+    [Fact]
+    public void BrokenPipe_OnFirstErrLineFlush_Exits1()
+    {
+        var e = new MemoryStream();
+        int code = CliApp.Run(["script"], new StringReader("GET\n"), new FailAfterStream(0), e);
+        Assert.Equal(1, code);
+        Assert.Equal("error: cannot write output: broken pipe\n", Encoding.UTF8.GetString(e.ToArray()));
+    }
+
+    // §10.3: a line longer than 2×MaxInputLength + 64 (R33) is discarded up to LF, reported as ERR, and the script continues.
+    [Fact]
+    public void OverlongLine_IsDiscardedWithErr_AndScriptContinues()
+    {
+        string longLine = "SET A1 " + new string('x', ScriptCommand.MaxLineLength);
+        var (code, o, e) = Script(longLine + "\nSET B1 2\nGET B1\n");
+        Assert.Equal(4, code);
+        Assert.Equal("ERR\tline too long (limit " + ScriptCommand.MaxLineLength + " characters)\nB1\tN:2\n", o);
+        Assert.Empty(e);
+    }
+
+    [Fact]
+    public void OverlongUnterminatedFinalLine_IsErr()
+    {
+        var (code, o, _) = Script("SET B1 2\n" + new string('y', ScriptCommand.MaxLineLength + 10));
+        Assert.Equal(4, code);
+        Assert.StartsWith("ERR\tline too long", o);
+    }
+
+    [Fact]
+    public void LineAtExactLimit_IsNotOverflow()
+    {
+        string line = "#" + new string('z', ScriptCommand.MaxLineLength - 1);
+        var (code, o, _) = Script(line + "\nSET A1 1\nGET A1\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tN:1\n", o);
+    }
+
+    // R33: cap is 2 x MaxInputLength + 64, not counting one trailing CR.
+    [Fact]
+    public void Setx_With20000Tabs_IsAcceptedAndStored()
+    {
+        string escaped = string.Concat(Enumerable.Repeat(((char)92) + "t", 20000));
+        var (code, o, _) = Script("SETX A1 " + escaped + "\nGET A1\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tT:" + string.Concat(Enumerable.Repeat(((char)92) + "t", 20000)) + "\n", o);
+    }
+
+    [Fact]
+    public void LineOfExactlyMax_Passes_MaxPlusOne_IsErr_AndNextLineRuns()
+    {
+        string atMax = "#" + new string('z', ScriptCommand.MaxLineLength - 1);
+        var (c1, o1, _) = Script(atMax + "\nSET A1 1\nGET A1\n");
+        Assert.Equal(0, c1);
+        Assert.Equal("A1\tN:1\n", o1);
+
+        var (c2, o2, _) = Script(atMax + "z\nSET A1 1\nGET A1\n");
+        Assert.Equal(4, c2);
+        Assert.Equal("ERR\tline too long (limit " + ScriptCommand.MaxLineLength + " characters)\nA1\tN:1\n", o2);
+    }
+
+    [Fact]
+    public void CrlfLineWithContentExactlyMax_Passes()
+    {
+        string atMax = "#" + new string('z', ScriptCommand.MaxLineLength - 1);
+        var (code, o, _) = Script(atMax + "\r\nSET A1 1\r\nGET A1\r\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tN:1\n", o);
+        var (c2, o2, _) = Script(atMax + "z\r\nGET A1\r\n");
+        Assert.Equal(4, c2);
+        Assert.StartsWith("ERR\tline too long", o2);
+    }
+
+    [Fact]
+    public void MidLineLoneCr_IsKeptInSetInput()
+    {
+        var (code, o, _) = Script("SET A1 a\rb\nINPUT A1\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\ta\\rb\n", o);
+    }
+
+    [Fact]
+    public void UnterminatedFinalLine_IsExecuted()
+    {
+        var (code, o, _) = Script("SET A1 5\nGET A1");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tN:5\n", o);
+    }
+
+    [Fact]
+    public void EmptyStdin_Exit0NoOutput()
+    {
+        var (code, o, e) = Script("");
+        Assert.Equal(0, code);
+        Assert.Empty(o);
+        Assert.Empty(e);
+    }
+
+    [Fact]
+    public void SetxDoubleBackslashT_StoresBackslashThenT()
+    {
+        var (code, o, _) = Script("SETX A1 \\\\t\nINPUT A1\n");
+        Assert.Equal(0, code);
+        // stored text is backslash + t (2 chars); INPUT escapes the backslash again
+        Assert.Equal("A1\t\\\\t\n", o);
+    }
+
+    [Fact]
+    public void TrailingCrAtEofWithoutLf_IsStripped()
+    {
+        var (code, o, _) = Script("SET A1 5\nGET A1\r");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tN:5\n", o);
+    }
+
     private sealed class ThrowingReader : TextReader
     {
         public override string? ReadLine() => throw new InvalidOperationException("stdin must not be read");

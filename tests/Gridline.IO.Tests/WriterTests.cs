@@ -100,6 +100,17 @@ public class WriterTests
     }
 
     [Fact]
+    public void Escaping_AllClassesInOneInput_ByteExact()
+    {
+        string input = "q\"b\\s/\b\f\n\r\t\u0000\u001f\u007fé日\U0001F600\ud800x\udfff<>&'";
+        string escaped = "q\\\"b\\\\s/\\b\\f\\n\\r\\t\\u0000\\u001f\u007fé日\U0001F600\\ud800x\\udfff<>&'";
+        var expected = Lines(
+            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": [",
+            "    [\"A1\", \"" + escaped + "\"]", "  ]", "}");
+        Assert.Equal(expected, Text(GridlineSerializer.Serialize(Make(("A1", input)))));
+    }
+
+    [Fact]
     public void LoneSurrogates_AreEscapedLowercase()
     {
         var text = Text(GridlineSerializer.Serialize(Make(("A1", "\ud800"), ("A2", "a\udfffb"), ("A3", "\U0001F600"))));

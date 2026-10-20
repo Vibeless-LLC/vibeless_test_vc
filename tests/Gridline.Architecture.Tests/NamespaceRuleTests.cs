@@ -11,9 +11,9 @@ namespace Gridline.Architecture.Tests;
 /// matches a namespace given with a trailing dot, so bare names are used and prefix collisions are guarded by a test.</summary>
 public class NamespaceRuleTests
 {
-    private static readonly string[] Siblings = ["Addressing", "Parsing", "Evaluation", "Functions", "Dependencies", "Commands"];
+    private static readonly string[] Siblings = [.. CoreNamespaces];
 
-    private static void AssertNoDeps(string ns, params string[] forbiddenSubNamespaces)
+    private static void AssertNoDeps(string ns, string[] forbiddenSubNamespaces)
     {
         var r = SiblingRule(CoreAsm, Ns(ns), forbiddenSubNamespaces);
         Assert.True(r.IsSuccessful, Describe(r));
@@ -23,7 +23,7 @@ public class NamespaceRuleTests
     [Fact]
     public void S3_3_Addressing_DependsOnNoOtherCoreNamespace()
     {
-        AssertNoDeps("Addressing", Siblings.Where(s => s != "Addressing").ToArray());
+        AssertNoDeps("Addressing", [.. NamespaceRules["Addressing"]]);
         var rootTypes = CoreRootTypeNames();
         Assert.NotEmpty(rootTypes);
         var r = NamespaceMustNotDependOn(CoreAsm, Ns("Addressing"), rootTypes);
@@ -33,22 +33,22 @@ public class NamespaceRuleTests
     // §3.3: Parsing MUST NOT depend on Evaluation, Functions, Dependencies or Commands.
     [Fact]
     public void S3_3_Parsing_DoesNotDependOnEvaluationFunctionsDependenciesCommands() =>
-        AssertNoDeps("Parsing", "Evaluation", "Functions", "Dependencies", "Commands");
+        AssertNoDeps("Parsing", [.. NamespaceRules["Parsing"]]);
 
     // §3.3: Evaluation MUST NOT depend on Commands or Dependencies.
     [Fact]
     public void S3_3_Evaluation_DoesNotDependOnCommandsOrDependencies() =>
-        AssertNoDeps("Evaluation", "Commands", "Dependencies");
+        AssertNoDeps("Evaluation", [.. NamespaceRules["Evaluation"]]);
 
     // §3.3: Functions MUST NOT depend on Parsing, Dependencies or Commands.
     [Fact]
     public void S3_3_Functions_DoesNotDependOnParsingDependenciesCommands() =>
-        AssertNoDeps("Functions", "Parsing", "Dependencies", "Commands");
+        AssertNoDeps("Functions", [.. NamespaceRules["Functions"]]);
 
     // §3.3: Dependencies MUST NOT depend on Functions or Commands.
     [Fact]
     public void S3_3_Dependencies_DoesNotDependOnFunctionsOrCommands() =>
-        AssertNoDeps("Dependencies", "Functions", "Commands");
+        AssertNoDeps("Dependencies", [.. NamespaceRules["Dependencies"]]);
 
     // Prefix-collision guard: bare namespace prefixes are safe only if no Core namespace merely starts with a sibling name.
     [Fact]
@@ -64,7 +64,7 @@ public class NamespaceRuleTests
             }
     }
 
-    // Guard against vacuous namespace rules: every namespace except Commands (still empty in Phase 1) has types.
+    // Guard against vacuous namespace rules: every namespace except Commands (still empty) has types.
     [Theory]
     [InlineData("Addressing")]
     [InlineData("Parsing")]

@@ -482,6 +482,38 @@ public class WorkbookTests
     }
 
     [Fact]
+    public void TwoFailingEditsWithLargeUndoLogs_LeaveEverythingUnchanged()
+    {
+        // §9.2: each failing edit writes ~2,000 values (more than the 1,024-entry retained undo capacity), so the
+        // log is trimmed after the rollback; two in a row must still leave values and edges intact.
+        const int n = 2000;
+        var wb = new Workbook(new ThrowingResolver());
+        wb.SetCell("A1", "1");
+        wb.SetCell("B1", "=A1");
+        for (int i = 2; i <= n; i++) wb.SetCell("B" + i, $"=B{i - 1}+1");
+        wb.SetCell("C1", $"=BOOM(B{n}-{n - 4})"); // B2000 = A1 + 1999, so BOOM sees 3 when A1 = 0
+        Assert.Equal(N(n), wb.GetValue("B" + n));
+        Assert.Equal(N(4), wb.GetValue("C1"));
+        var addresses = wb.GetUsedAddresses().ToList();
+        var before = addresses.ToDictionary(a => a, a => wb.GetValue(a));
+        var log = new EventLog(wb);
+
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("A1", "0"));
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("A1", "0.0"));
+
+        Assert.Empty(log.Events);
+        Assert.Equal("1", wb.GetInput("A1"));
+        Assert.Equal(addresses, wb.GetUsedAddresses().ToList());
+        foreach (var (addr, value) in before) Assert.Equal(value, wb.GetValue(addr));
+
+        // Edges intact: a good edit recomputes the whole chain and C1.
+        wb.SetCell("A1", "11");
+        Assert.Equal(N(10 + n), wb.GetValue("B" + n));
+        Assert.Equal(N(14), wb.GetValue("C1"));
+        Assert.Equal(n + 1, wb.LastRecalc.EvaluatedFormulaCount);
+    }
+
+    [Fact]
     public void ThrowingNewFormula_LeavesCellEmptyAndNoEdges()
     {
         var wb = new Workbook(new ThrowingResolver());
@@ -519,6 +551,37 @@ public class WorkbookTests
         Assert.Equal(N(2), wb.GetValue("F1"));
         wb.SetCell("A1", "9");
         Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount); // the failed formula's edge to A1 was rolled back
+    }
+
+    [Fact]
+    public void ThrowingReplacement_RestoresRangeEdgesInASharedBucket()
+    {
+        // §6.1, §9.2: the rollback re-adds the old range after its index entry was swap-removed from buckets it
+        // shares with other same-shaped ranges; every range must still be found afterwards.
+        var wb = new Workbook(new ThrowingResolver());
+        wb.SetCell("A1", "3");
+        wb.SetCell("E1", "=SUM(B1:B4)");
+        wb.SetCell("E2", "=SUM(B2:B5)");
+        wb.SetCell("E3", "=SUM(B3:B6)");
+        wb.SetCell("E4", "=SUM(B1:B3)");
+
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("E1", "=BOOM(A1)+SUM(B1:B2)"));
+        Assert.Equal("=SUM(B1:B4)", wb.GetInput("E1"));
+
+        wb.SetCell("B4", "1");
+        Assert.Equal(3, wb.LastRecalc.EvaluatedFormulaCount); // E1, E2, E3
+        Assert.Equal(N(1), wb.GetValue("E1"));
+        wb.SetCell("B1", "2");
+        Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount); // E1, E4
+        Assert.Equal(N(3), wb.GetValue("E1"));
+        wb.SetCell("B6", "4");
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount); // E3
+        wb.SetCell("E2", "");
+        wb.SetCell("B5", "8");
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount); // E3 only; E2's range is gone
+        wb.SetCell("B2", "16");
+        Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount); // E1, E4
+        Assert.Equal(N(19), wb.GetValue("E1"));
     }
 
     [Fact]
@@ -611,5 +674,107 @@ public class WorkbookTests
         Assert.ThrowsAny<ArgumentException>(() =>
             Workbook.FromCells([new("A1", "=BOOM(1)"), new("B1", "=BOOM(2)"), new("A1", "x")], resolver));
         Assert.Equal(0, resolver.Invocations); // nothing was built or evaluated
+    }
+
+    // ---- Task 2 hardening (§9.1, §9.2, R24, R25) ----
+
+    [Fact]
+    public void CellsChangedAddresses_AreReadOnly()
+    {
+        var wb = new Workbook();
+        IReadOnlyList<string>? seen = null;
+        wb.CellsChanged += (_, e) => seen = e.Addresses;
+        wb.SetCell("A1", "1");
+        Assert.NotNull(seen);
+        var list = Assert.IsAssignableFrom<IList<string>>(seen);
+        Assert.True(list.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => list[0] = "Z9");
+        Assert.Equal(["A1"], seen);
+
+        // The public constructor also exposes its argument read-only.
+        var args = new CellsChangedEventArgs(new[] { "B2" });
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)args.Addresses)[0] = "Z9");
+    }
+
+    [Fact]
+    public void GetUsedAddresses_RowMajorAcrossRowsAndColumns()
+    {
+        var wb = new Workbook();
+        foreach (var a in new[] { "B2", "AA1", "A2", "A100000", "ZZ1", "B1", "A1" }) wb.SetCell(a, "x");
+        Assert.Equal(["A1", "B1", "AA1", "ZZ1", "A2", "B2", "A100000"], wb.GetUsedAddresses());
+    }
+
+    [Fact]
+    public void FormulaReplacedBySameValueFormula_StillRaisesEventWithEditedCell()
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", "1");
+        wb.SetCell("B1", "=A1");
+        var log = new EventLog(wb);
+        wb.SetCell("B1", "=A1*1");
+        Assert.Equal(N(1), wb.GetValue("B1"));
+        Assert.Single(log.Events);
+        Assert.Contains("B1", log.Events[0]);
+    }
+
+    [Fact]
+    public void ClearingEmptyTextCell_RaisesEvent()
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", "'");
+        Assert.Equal(CellValue.FromText(""), wb.GetValue("A1"));
+        var log = new EventLog(wb);
+        wb.SetCell("A1", "");
+        Assert.Single(log.Events);
+        Assert.Equal(["A1"], log.Events[0]);
+        Assert.Equal(CellValue.Blank, wb.GetValue("A1"));
+        Assert.Empty(wb.GetUsedAddresses());
+    }
+
+    [Fact]
+    public void SubscriberException_Propagates_EditStaysCommitted()
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", "1");
+        wb.SetCell("B1", "=A1+1");
+        wb.CellsChanged += (_, _) => throw new InvalidOperationException("handler");
+        var ex = Assert.Throws<InvalidOperationException>(() => wb.SetCell("A1", "5"));
+        Assert.Equal("handler", ex.Message);
+        Assert.Equal("5", wb.GetInput("A1"));
+        Assert.Equal(N(6), wb.GetValue("B1"));
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount);
+    }
+
+    [Fact]
+    public void DollarAddresses_AcceptedAsPlainA1()
+    {
+        var wb = new Workbook();
+        wb.SetCell("$A$1", "7");
+        Assert.Equal(N(7), wb.GetValue("A1"));
+        Assert.Equal(N(7), wb.GetValue("$A$1"));
+        Assert.Equal("7", wb.GetInput("$A$1"));
+        Assert.Equal(["A1"], wb.GetUsedAddresses());
+    }
+
+    [Fact]
+    public void ThrowingReplacement_OfRangeFormula_KeepsRangeEdgesWorking()
+    {
+        var wb = new Workbook(new ThrowingResolver());
+        wb.SetCell("A1", "1");
+        wb.SetCell("A2", "2");
+        wb.SetCell("A3", "3");
+        wb.SetCell("A4", "3");
+        wb.SetCell("C1", "=SUM(A1:A3)");
+        Assert.Equal(N(6), wb.GetValue("C1"));
+
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("C1", "=BOOM(A4)"));
+        Assert.Equal("=SUM(A1:A3)", wb.GetInput("C1"));
+        Assert.Equal(N(6), wb.GetValue("C1"));
+
+        wb.SetCell("A2", "10");
+        Assert.Equal(N(14), wb.GetValue("C1"));
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount);
+        wb.SetCell("A4", "100"); // the failed formula's edge to A4 must be gone
+        Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount);
     }
 }

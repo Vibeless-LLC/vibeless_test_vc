@@ -20,6 +20,7 @@ public static class PrecedentExtractor
         List<string>? names = null;
         HashSet<CellAddress>? seenCells = null;
         HashSet<CellRange>? seenRanges = null;
+        HashSet<string>? seenNames = null; // ordinal set: O(1) dedupe per name instead of a list scan
 
         var stack = new Stack<FormulaNode>();
         stack.Push(root);
@@ -36,8 +37,7 @@ public static class PrecedentExtractor
                     break;
                 case NameNode n:
                     var upper = n.Name.ToUpperInvariant();
-                    names ??= [];
-                    if (!names.Contains(upper, StringComparer.Ordinal)) names.Add(upper);
+                    if ((seenNames ??= new HashSet<string>(StringComparer.Ordinal)).Add(upper)) (names ??= []).Add(upper);
                     break;
                 case FunctionCallNode call:
                     for (int i = call.Arguments.Count - 1; i >= 0; i--) stack.Push(call.Arguments[i]); // left first

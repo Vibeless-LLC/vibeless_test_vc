@@ -14,9 +14,20 @@ public static class ErrorCodes
     public const string Circ = "#CIRC!";
     public const string Parse = "#PARSE!";
 
-    private static readonly FrozenSet<string> Known =
-        new[] { DivZero, NA, Name, Num, Ref, Value, Circ, Parse }.ToFrozenSet(StringComparer.Ordinal);
+    private static readonly string[] All = [DivZero, NA, Name, Num, Ref, Value, Circ, Parse];
+
+    private static readonly FrozenSet<string> Known = All.ToFrozenSet(StringComparer.Ordinal);
+
+    private static readonly FrozenDictionary<string, string> ByAnyCase =
+        All.ToFrozenDictionary(c => c, c => c, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>True when <paramref name="code"/> is exactly one of the defined error codes.</summary>
     public static bool IsKnown(string? code) => code is not null && Known.Contains(code);
+
+    /// <summary>Maps a code in any letter case (e.g. "#div/0!") to its canonical spelling; false when it is not one of the eight codes.</summary>
+    internal static bool TryGetCanonical(string? code, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? canonical)
+    {
+        if (code is null) { canonical = null; return false; }
+        return ByAnyCase.TryGetValue(code, out canonical);
+    }
 }
