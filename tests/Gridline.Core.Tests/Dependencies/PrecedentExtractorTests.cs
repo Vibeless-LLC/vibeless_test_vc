@@ -32,6 +32,17 @@ public class PrecedentExtractorTests
     }
 
     [Fact]
+    public void Many_names_are_deduplicated_case_insensitively_in_first_appearance_order()
+    {
+        // §6.1, R20: thousands of names (each written twice in different case) dedupe to one upper-cased key each.
+        var text = new StringBuilder("rate0"); // 4 letters: never a cell reference
+        for (int i = 1; i < 3000; i++) text.Append("+rate").Append(i);
+        for (int i = 2999; i >= 0; i--) text.Append("+RATE").Append(i);
+        var p = Extract(text.ToString());
+        Assert.Equal(Enumerable.Range(0, 3000).Select(i => "RATE" + i), p.Names);
+    }
+
+    [Fact]
     public void Failed_parse_and_null_have_no_precedents()
     {
         var failed = FormulaParser.Parse("A1+", Arities);

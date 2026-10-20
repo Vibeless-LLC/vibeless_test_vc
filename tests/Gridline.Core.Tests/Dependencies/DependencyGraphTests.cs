@@ -115,11 +115,82 @@ public class DependencyGraphTests
         }
         // Remove a few to exercise index removal.
         foreach (var owner in ranges.Keys.Take(50).ToList()) { g.SetFormula(owner, null); ranges.Remove(owner); }
-        for (int i = 0; i < 2000; i++)
+        AssertMatchesBruteForce(g, ranges, rng, 2000);
+
+        // Heavy removal (§6.1): remove most of the rest in random order, so swap-removes move entries around in
+        // shared buckets; re-add some removed ranges (as Workbook's rollback does) and share some between owners.
+        var removed = new List<(CellAddress Owner, CellRange Range)>();
+        foreach (var owner in ranges.Keys.OrderBy(_ => rng.Next()).Take(300).ToList())
+        {
+            removed.Add((owner, ranges[owner]));
+            g.SetFormula(owner, null);
+            ranges.Remove(owner);
+            if (removed.Count % 60 == 0) AssertMatchesBruteForce(g, ranges, rng, 200);
+        }
+        AssertMatchesBruteForce(g, ranges, rng, 2000);
+        foreach (var (owner, range) in removed.Where((_, i) => i % 3 == 0))
+        {
+            ranges[owner] = range;
+            g.SetFormula(owner, P($"SUM({range})"));
+        }
+        int sharer = 0;
+        foreach (var range in ranges.Values.Take(40).ToList())
+        {
+            var owner = new CellAddress(200 + sharer % 20, 1 + sharer / 20);
+            sharer++;
+            ranges[owner] = range; // same range, second dependent: reference-counted
+            g.SetFormula(owner, P($"SUM({range})"));
+        }
+        AssertMatchesBruteForce(g, ranges, rng, 2000);
+        foreach (var owner in ranges.Keys.OrderBy(_ => rng.Next()).ToList())
+        {
+            g.SetFormula(owner, null);
+            ranges.Remove(owner);
+            if (ranges.Count % 50 == 0) AssertMatchesBruteForce(g, ranges, rng, 200);
+        }
+        for (int i = 0; i < 200; i++)
+            Assert.Empty(g.GetDependents(new CellAddress(rng.Next(1, 62), rng.Next(1, 3002))));
+    }
+
+    private static void AssertMatchesBruteForce(DependencyGraph g, Dictionary<CellAddress, CellRange> ranges, Random rng, int probes)
+    {
+        for (int i = 0; i < probes; i++)
         {
             var probe = new CellAddress(rng.Next(1, 62), rng.Next(1, 3002));
             var expected = ranges.Where(kv => kv.Value.Contains(probe)).Select(kv => kv.Key);
             Assert.Equal(Sorted(expected), Sorted(g.GetDependents(probe)));
         }
+    }
+
+    [Theory]
+    [InlineData(0)] // remove first-added first
+    [InlineData(1)] // remove last-added first (worst case for a linear bucket scan)
+    [InlineData(2)] // random order
+    public void Running_total_ranges_remove_correctly_in_any_order(int order)
+    {
+        // B_r = SUM($A$1:A_r): every range shares tile 0 of its level, so buckets are large (§6.1).
+        const int n = 3000;
+        var g = new DependencyGraph();
+        for (int r = 1; r <= n; r++) g.SetFormula(new CellAddress(2, r), P($"SUM($A$1:A{r})"));
+        var rows = Enumerable.Range(1, n).ToList();
+        if (order == 1) rows.Reverse();
+        if (order == 2) { var rng = new Random(77); rows = [.. rows.OrderBy(_ => rng.Next())]; }
+
+        var live = new SortedSet<int>(Enumerable.Range(1, n));
+        for (int k = 0; k < rows.Count; k++)
+        {
+            g.SetFormula(new CellAddress(2, rows[k]), null);
+            live.Remove(rows[k]);
+            if (k % 500 == 0 || k == rows.Count - 1)
+            {
+                foreach (int probe in new[] { 1, 2, 700, 1024, 1025, 2048, 2999, 3000 })
+                {
+                    // A_probe is in SUM($A$1:A_r) exactly when r >= probe.
+                    var expected = live.Where(r => r >= probe).Select(r => new CellAddress(2, r));
+                    Assert.Equal(Sorted(expected), Sorted(g.GetDependents(new CellAddress(1, probe))));
+                }
+            }
+        }
+        Assert.Equal(0, g.FormulaCount);
     }
 }

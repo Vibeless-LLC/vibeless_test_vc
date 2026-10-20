@@ -522,6 +522,37 @@ public class WorkbookTests
     }
 
     [Fact]
+    public void ThrowingReplacement_RestoresRangeEdgesInASharedBucket()
+    {
+        // §6.1, §9.2: the rollback re-adds the old range after its index entry was swap-removed from buckets it
+        // shares with other same-shaped ranges; every range must still be found afterwards.
+        var wb = new Workbook(new ThrowingResolver());
+        wb.SetCell("A1", "3");
+        wb.SetCell("E1", "=SUM(B1:B4)");
+        wb.SetCell("E2", "=SUM(B2:B5)");
+        wb.SetCell("E3", "=SUM(B3:B6)");
+        wb.SetCell("E4", "=SUM(B1:B3)");
+
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("E1", "=BOOM(A1)+SUM(B1:B2)"));
+        Assert.Equal("=SUM(B1:B4)", wb.GetInput("E1"));
+
+        wb.SetCell("B4", "1");
+        Assert.Equal(3, wb.LastRecalc.EvaluatedFormulaCount); // E1, E2, E3
+        Assert.Equal(N(1), wb.GetValue("E1"));
+        wb.SetCell("B1", "2");
+        Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount); // E1, E4
+        Assert.Equal(N(3), wb.GetValue("E1"));
+        wb.SetCell("B6", "4");
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount); // E3
+        wb.SetCell("E2", "");
+        wb.SetCell("B5", "8");
+        Assert.Equal(1, wb.LastRecalc.EvaluatedFormulaCount); // E3 only; E2's range is gone
+        wb.SetCell("B2", "16");
+        Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount); // E1, E4
+        Assert.Equal(N(19), wb.GetValue("E1"));
+    }
+
+    [Fact]
     public void ThrowingFormulaReplacingConstant_RestoresConstant()
     {
         var wb = new Workbook(new ThrowingResolver());
