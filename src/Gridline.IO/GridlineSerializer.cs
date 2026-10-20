@@ -8,8 +8,10 @@ namespace Gridline.IO;
 /// </summary>
 public static class GridlineSerializer
 {
-    /// <summary>The canonical bytes of <paramref name="workbook"/> (§8.1). Names are the workbook's <see cref="Workbook.GetNames"/>, sorted OrdinalIgnoreCase, including
-    /// <c>#REF!</c> targets (R59).</summary>
+    /// <summary>
+    /// The canonical bytes of <paramref name="workbook"/> (§8.1). Names are the workbook's
+    /// <see cref="Workbook.GetNames"/>, sorted OrdinalIgnoreCase, including <c>#REF!</c> targets (R59).
+    /// </summary>
     public static byte[] Serialize(Workbook workbook)
     {
         ArgumentNullException.ThrowIfNull(workbook);

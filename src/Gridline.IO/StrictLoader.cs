@@ -143,8 +143,8 @@ internal static class StrictLoader
         if (!hasVersion) throw Fail("\"version\" is missing.");
         if (problem is not null) throw Fail(problem);
         if (version < 1) throw Fail("\"version\" must be 1.");
-        // R54 (§8.2): a missing "names" or "cells" key counts as empty.
 
+        // R54 (§8.2): a missing "names" or "cells" key counts as empty (names stays an empty list, cells is []).
         var cells = hasCells ? ReadCells(ref cellsReader) : [];
         try
         {

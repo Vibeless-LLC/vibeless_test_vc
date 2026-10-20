@@ -13,8 +13,24 @@ public class NamesFileTests
 
     private static void Bad(string json) => Assert.Throws<GridlineFormatException>(() => Load(json));
 
+    // The literal §8.1 example file (architecture.md): names Rate and Total, three cells.
     [Fact]
-    public void Spec81Example_LoadsEvaluatesAndResavesByteExact()
+    public void Spec81Example_Literal_LoadsEvaluatesAndResavesByteForByte()
+    {
+        var text = WriterTests.Lines(
+            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",
+            "    \"Rate\": \"$B$1\",", "    \"Total\": \"$A$1:$A$10\"", "  },", "  \"cells\": [",
+            "    [\"A1\", \"=SUM(B1:B3)*Rate\"],", "    [\"B1\", \"5\"],", "    [\"A2\", \"hello \\\"world\\\"\"]", "  ]", "}");
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var wb = GridlineSerializer.Deserialize(bytes);
+        Assert.Equal(25.0, wb.GetValue("A1").Number);
+        Assert.Equal("hello \"world\"", wb.GetInput("A2"));
+        Assert.Equal(new[] { "Rate", "Total" }, wb.GetNames().Select(n => n.Key).ToArray());
+        Assert.Equal(bytes, GridlineSerializer.Serialize(wb));
+    }
+
+    [Fact]
+    public void SampleWithTwoNames_LoadsEvaluatesAndResavesByteExact()
     {
         var canonical = WriterTests.Lines(
             "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",

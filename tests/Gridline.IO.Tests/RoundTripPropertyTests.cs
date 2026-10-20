@@ -84,6 +84,10 @@ public class RoundTripPropertyTests
             var (cells, names) = data;
             var plain = new Workbook();
             foreach (var (a, i) in cells) plain.SetCell(a, i);
+            // Formulas that use the generated names, in rows (100..) the cell generator never touches.
+            var users = names.Select((n, k) => (Address: new Core.Addressing.CellAddress(1 + k % 10, 100 + k / 10).ToString(),
+                Name: n.Name, Input: k % 2 == 0 ? "=SUM(" + n.Name + ")" : "=" + n.Name + "+1")).ToArray();
+            foreach (var u in users) plain.SetCell(u.Address, u.Input);
             string head = System.Text.Encoding.UTF8.GetString(GridlineSerializer.Serialize(plain));
 
             // Distinct names (case-insensitive, first wins), sorted as the writer sorts them.
@@ -101,13 +105,24 @@ public class RoundTripPropertyTests
             var back = GridlineSerializer.Deserialize(bytes1);
             var bytes2 = GridlineSerializer.Serialize(back);
             if (!bytes1.AsSpan().SequenceEqual(bytes2)) return false;
+            // Loaded values equal those of a workbook with the same names defined live; #REF! names give #REF!.
+            var live = new Workbook();
+            foreach (var a in plain.GetUsedAddresses()) live.SetCell(a, plain.GetInput(a));
+            foreach (var n in order)
+                if (distinct[n] != "#REF!") live.DefineName(n, distinct[n]);
+            foreach (var u in users)
+            {
+                if (distinct[u.Name] == "#REF!")
+                {
+                    if (back.GetValue(u.Address).Error != "#REF!") return false;
+                }
+                else if (!live.GetValue(u.Address).Equals(back.GetValue(u.Address))) return false;
+            }
             var expectedNames = order.Select(n => new KeyValuePair<string, string>(n, distinct[n]));
             if (!expectedNames.SequenceEqual(back.GetNames())) return false;
             foreach (var a in plain.GetUsedAddresses())
             {
-                // No generated formula uses a name, so values are unaffected by the names section.
                 if (!string.Equals(plain.GetInput(a), back.GetInput(a), StringComparison.Ordinal)) return false;
-                if (!plain.GetValue(a).Equals(back.GetValue(a))) return false;
             }
 
             // A workbook built through DefineName (public path, no #REF!) round-trips too.
