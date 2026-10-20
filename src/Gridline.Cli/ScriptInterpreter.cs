@@ -1,5 +1,6 @@
 using System.Text;
 using Gridline.Core;
+using Gridline.Core.Addressing;
 using Gridline.IO;
 
 namespace Gridline.Cli;
@@ -67,6 +68,29 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                         throw new CliException(ExitCodes.Usage, "PASTE requires <srcRange> <dstAddr>");
                     _wb.CopyPaste(parts[0], parts[1]);
                 }
+                return true;
+            case "INSERTROWS": { var (r, n) = RowArgs(word, rest); Structure(() => _wb.InsertRows(r, n)); } return true;
+            case "DELETEROWS": { var (r, n) = RowArgs(word, rest); Structure(() => _wb.DeleteRows(r, n)); } return true;
+            case "INSERTCOLS": { var (c, n) = ColumnArgs(word, rest); Structure(() => _wb.InsertColumns(c, n)); } return true;
+            case "DELETECOLS": { var (c, n) = ColumnArgs(word, rest); Structure(() => _wb.DeleteColumns(c, n)); } return true;
+            case "NAME":
+                {
+                    string[] parts = rest.Split(' ');
+                    if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+                        throw new CliException(ExitCodes.Usage, "NAME requires <name> <refersTo>");
+                    _wb.DefineName(parts[0], parts[1]);
+                }
+                return true;
+            case "UNNAME":
+                {
+                    if (rest.Length == 0 || rest.Contains(' '))
+                        throw new CliException(ExitCodes.Usage, "UNNAME requires <name>");
+                    _wb.DeleteName(rest);
+                }
+                return true;
+            case "NAMES":
+                NoArgs(word, rest);
+                foreach (var kv in _wb.GetNames()) ctx.Out("NAME\t" + kv.Key + "\t" + kv.Value + "\n");
                 return true;
             case "GET":
                 { string a = OneAddress(rest); ctx.Out(a + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n"); }
@@ -154,6 +178,47 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         if (rest.Length == 0) throw new CliException(ExitCodes.Usage, "missing cell address");
         if (rest.Contains(' ')) throw new CliException(ExitCodes.Usage, "too many arguments");
         return CellArgs.Canonical(rest);
+    }
+
+    // Only the structure edits turn InvalidOperationException (a cell would leave the grid) into a user-facing ERR;
+    // anywhere else it is an internal failure and must keep escaping as "internal error" (exit 1).
+    private static void Structure(Action edit)
+    {
+        try { edit(); }
+        catch (InvalidOperationException ex) { throw new CliException(ExitCodes.Usage, ex.Message); }
+    }
+
+    // R73: <row>/<n> are ASCII decimal digits only (no sign, no spaces), and must fit an int.
+    private static (int row, int count) RowArgs(string word, string rest)
+    {
+        string[] parts = TwoArgs(word, rest, "<row> <n>");
+        return (Integer(parts[0], "row"), Integer(parts[1], "count"));
+    }
+
+    // R73: <col> is 1-2 letters A-ZZ in either case.
+    private static (int column, int count) ColumnArgs(string word, string rest)
+    {
+        string[] parts = TwoArgs(word, rest, "<col> <n>");
+        if (!ColumnName.TryParse(parts[0], out int column))
+            throw new CliException(ExitCodes.Usage, $"invalid column '{parts[0]}' (expected A to ZZ)");
+        return (column, Integer(parts[1], "count"));
+    }
+
+    private static string[] TwoArgs(string word, string rest, string shape)
+    {
+        string[] parts = rest.Split(' ');
+        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+            throw new CliException(ExitCodes.Usage, $"{word} requires {shape}");
+        return parts;
+    }
+
+    private static int Integer(string text, string what)
+    {
+        foreach (char c in text)
+            if (c is < '0' or > '9') throw new CliException(ExitCodes.Usage, $"invalid {what} '{text}' (expected a non-negative integer)");
+        if (!int.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int v))
+            throw new CliException(ExitCodes.Usage, $"{what} '{text}' is too large");
+        return v;
     }
 
     private static void NoArgs(string word, string rest)

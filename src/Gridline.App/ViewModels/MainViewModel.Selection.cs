@@ -21,7 +21,20 @@ public sealed partial class MainViewModel : IGridDataSource
     /// <summary>The fixed corner of the selection (where Shift-extension started).</summary>
     public CellAddress SelectionAnchor => _anchor;
 
-    public CellRange Selection => new(_anchor, _active);
+    /// <summary>The header axis of a whole-row or whole-column selection (R75), or null for a cell selection.</summary>
+    private HeaderAxis? _headerAxis;
+
+    /// <summary>The selected rectangle: anchor to active cell, or for a header selection (R75) the whole rows (A–ZZ)
+    /// between the anchor's and the active cell's rows, or the whole columns (1–100000) between their columns.</summary>
+    public CellRange Selection => _headerAxis switch
+    {
+        HeaderAxis.Rows => new(new CellAddress(1, _anchor.Row), new CellAddress(GridBounds.MaxColumns, _active.Row)),
+        HeaderAxis.Columns => new(new CellAddress(_anchor.Column, 1), new CellAddress(_active.Column, GridBounds.MaxRows)),
+        _ => new(_anchor, _active),
+    };
+
+    /// <summary>The header axis of the current whole-row or whole-column selection, or null (R75).</summary>
+    public HeaderAxis? HeaderSelectionAxis => _headerAxis;
 
     /// <summary>The active cell's canonical address, e.g. <c>B2</c>.</summary>
     public string ActiveAddress => _active.ToString();
@@ -51,13 +64,20 @@ public sealed partial class MainViewModel : IGridDataSource
     }
 
     /// <summary>Makes <paramref name="cell"/> active. An open edit is committed to the cell it belongs to first (§11.4, D-38).</summary>
-    public void SelectCell(CellAddress cell, bool extend)
+    /// <remarks>Extending (Shift+arrows, Shift+click, drag) keeps a whole-row or whole-column selection whole along its
+    /// axis; anything else makes it a cell selection again (R75, D-49).</remarks>
+    public void SelectCell(CellAddress cell, bool extend) => SetSelection(cell, extend, extend ? _headerAxis : null);
+
+    /// <summary>The one place the selection changes (except Adopt's reset). Ignored until startup has completed (D-49).</summary>
+    private void SetSelection(CellAddress active, bool extend, HeaderAxis? axis)
     {
+        if (!IsReady) return;
         if (_isEditing && !TryCommit()) return;
-        CellAddress anchor = extend ? _anchor : cell;
-        if (cell == _active && anchor == _anchor) return;
-        _active = cell;
+        CellAddress anchor = extend ? _anchor : active;
+        if (active == _active && anchor == _anchor && axis == _headerAxis) return;
+        _active = active;
         _anchor = anchor;
+        _headerAxis = axis;
         OnSelectionMoved();
     }
 
@@ -81,6 +101,8 @@ public sealed partial class MainViewModel : IGridDataSource
         OnPropertyChanged(nameof(ActiveAddress));
         OnPropertyChanged(nameof(SelectionAnchor));
         OnPropertyChanged(nameof(Selection));
+        OnPropertyChanged(nameof(HeaderSelectionAxis));
+        RaiseStructureCanExecuteChanged();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 

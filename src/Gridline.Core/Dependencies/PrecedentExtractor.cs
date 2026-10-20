@@ -21,6 +21,7 @@ public static class PrecedentExtractor
         HashSet<CellAddress>? seenCells = null;
         HashSet<CellRange>? seenRanges = null;
         HashSet<string>? seenNames = null; // ordinal set: O(1) dedupe per name instead of a list scan
+        List<ResizedReference>? resized = null;
 
         var stack = new Stack<FormulaNode>();
         stack.Push(root);
@@ -41,6 +42,15 @@ public static class PrecedentExtractor
                     break;
                 case FunctionCallNode call:
                     for (int i = call.Arguments.Count - 1; i >= 0; i--) stack.Push(call.Arguments[i]); // left first
+                    if (TryResized(call, out var rr))
+                    {
+                        if (rr.Range.Literal is { } rangeLit && rr.Anchor.Literal is { } anchorLit)
+                        {
+                            var rect = ResizedReference.Resize(rangeLit, anchorLit); // fixed by the text alone
+                            if ((seenRanges ??= []).Add(rect)) (ranges ??= []).Add(rect);
+                        }
+                        else (resized ??= []).Add(rr);
+                    }
                     break;
                 case BinaryNode b:
                     stack.Push(b.Right);
@@ -54,6 +64,36 @@ public static class PrecedentExtractor
         }
 
         if (cells is null && ranges is null && names is null) return FormulaPrecedents.Empty;
-        return new FormulaPrecedents(cells?.ToArray() ?? [], ranges?.ToArray() ?? [], names?.ToArray() ?? []);
+        return new FormulaPrecedents(cells?.ToArray() ?? [], ranges?.ToArray() ?? [], names?.ToArray() ?? [], resized?.ToArray());
+    }
+
+    /// <summary>
+    /// R68, §6.1: <c>SUMIF(range, criteria, sum_range)</c> and <c>AVERAGEIF(...)</c> read the rectangle anchored at the
+    /// top-left of the third argument with the size of <c>range</c>, which can lie outside the third argument's text. When
+    /// both are references (cell, range or name, parentheses allowed) that rectangle is a static dependency. Matched by
+    /// function name here, so Dependencies never needs the Functions namespace (§3.3).
+    /// </summary>
+    private static bool TryResized(FunctionCallNode call, out ResizedReference resized)
+    {
+        resized = default;
+        if (call.Arguments.Count != 3 ||
+            !(call.Name.Equals("SUMIF", StringComparison.OrdinalIgnoreCase) ||
+              call.Name.Equals("AVERAGEIF", StringComparison.OrdinalIgnoreCase)))
+            return false;
+        if (!TrySpec(call.Arguments[0], out var range) || !TrySpec(call.Arguments[2], out var anchor)) return false;
+        resized = new ResizedReference(range, anchor);
+        return true;
+    }
+
+    private static bool TrySpec(FormulaNode node, out ReferenceSpec spec)
+    {
+        while (node is ParenNode p) node = p.Inner; // R12: parentheses keep a reference a reference
+        switch (node)
+        {
+            case CellRefNode r: spec = new ReferenceSpec(new CellRange(r.Reference.Address, r.Reference.Address), null); return true;
+            case RangeNode r: spec = new ReferenceSpec(new CellRange(r.Start.Address, r.End.Address), null); return true;
+            case NameNode n: spec = new ReferenceSpec(null, n.Name.ToUpperInvariant()); return true;
+            default: spec = default; return false;
+        }
     }
 }

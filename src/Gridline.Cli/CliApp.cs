@@ -47,13 +47,15 @@ public static class CliApp
 
     private static int Dispatch(string[] args, CliContext ctx)
     {
-        if (args.Length == 0) throw new CliException(ExitCodes.Usage, "missing command (expected eval, set or script)");
+        if (args.Length == 0) throw new CliException(ExitCodes.Usage, "missing command (expected eval, set, script, import-csv or export-csv)");
         return args[0] switch
         {
             "script" => ScriptCommand.Run(args, ctx),
             "eval" => FileCommands.Eval(args, ctx),
             "set" => FileCommands.Set(args, ctx),
-            _ => throw new CliException(ExitCodes.Usage, $"unknown command '{args[0]}' (expected eval, set or script)"),
+            "import-csv" => CsvCommands.Import(args),
+            "export-csv" => CsvCommands.Export(args),
+            _ => throw new CliException(ExitCodes.Usage, $"unknown command '{args[0]}' (expected eval, set, script, import-csv or export-csv)"),
         };
     }
 }

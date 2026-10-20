@@ -51,10 +51,11 @@ internal static class StrictLoader
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? problem = null;
-        bool formatOk = false, hasFormat = false, hasVersion = false, namesNonEmpty = false, hasCells = false;
+        bool formatOk = false, hasFormat = false, hasVersion = false, hasCells = false;
         long version = 0;
         bool versionHuge = false;
         Utf8JsonReader cellsReader = default;
+        var names = new List<KeyValuePair<string, string>>();
 
         while (true)
         {
@@ -96,7 +97,9 @@ internal static class StrictLoader
                 case "names":
                     if (reader.TokenType == JsonTokenType.StartObject)
                     {
-                        // Phase 1 has no names (R26): only an empty object is accepted; syntax and duplicates are still checked.
+                        // §8.2: each entry is name -> refersTo string. Syntax and exact-duplicate keys are checked here;
+                        // name/refersTo validity and case-insensitive duplicates are checked by Core after the
+                        // version/format checks (so an unsupported version reports first).
                         var nameKeys = new HashSet<string>(StringComparer.Ordinal);
                         while (true)
                         {
@@ -105,8 +108,12 @@ internal static class StrictLoader
                             string nk = ReadString(ref reader);
                             if (!nameKeys.Add(nk)) throw Fail($"duplicate key \"{nk}\".");
                             if (!reader.Read()) throw Fail("unexpected end of file.");
-                            SkipValue(ref reader);
-                            namesNonEmpty = true;
+                            if (reader.TokenType == JsonTokenType.String) names.Add(new(nk, ReadString(ref reader)));
+                            else
+                            {
+                                problem ??= $"the value of name \"{nk}\" must be a string.";
+                                SkipValue(ref reader);
+                            }
                         }
                     }
                     else
@@ -136,17 +143,16 @@ internal static class StrictLoader
         if (!hasVersion) throw Fail("\"version\" is missing.");
         if (problem is not null) throw Fail(problem);
         if (version < 1) throw Fail("\"version\" must be 1.");
-        // R54 (§8.2): a missing "names" or "cells" key counts as empty.
-        if (namesNonEmpty) throw Fail("non-empty \"names\" are not supported by this version.");
 
+        // R54 (§8.2): a missing "names" or "cells" key counts as empty (names stays an empty list, cells is []).
         var cells = hasCells ? ReadCells(ref cellsReader) : [];
         try
         {
-            return Workbook.FromCells(cells);
+            return Workbook.FromCells(cells, names);
         }
         catch (ArgumentException ex)
         {
-            // FromCells rejected an entry (duplicate, invalid input; R5). Only this call is mapped.
+            // FromCells rejected an entry (duplicate, invalid input, invalid or duplicate name; R5, §9.6). Only this call is mapped.
             throw new GridlineFormatException("Invalid .gridline file: " + ex.Message, ex);
         }
     }

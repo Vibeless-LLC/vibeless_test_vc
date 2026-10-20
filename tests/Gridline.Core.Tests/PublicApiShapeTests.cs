@@ -166,4 +166,26 @@ public class PublicApiShapeTests
         AssertMethod(t, "MarkSaved", isStatic: false, typeof(void));
         AssertMethod(t, "CopyPaste", isStatic: false, typeof(void), typeof(string), typeof(string));
     }
+
+    // §9.1 Phase 3 names (§9.6); the insert/delete members land with structure edits.
+    [Fact]
+    public void Workbook_HasThePhase3NameSurface()
+    {
+        var t = typeof(Workbook);
+        AssertMethod(t, "DefineName", isStatic: false, typeof(void), typeof(string), typeof(string));
+        AssertMethod(t, "DeleteName", isStatic: false, typeof(void), typeof(string));
+        AssertMethod(t, "GetNames", isStatic: false, typeof(IReadOnlyList<KeyValuePair<string, string>>));
+    }
+
+    [Fact]
+    public void Workbook_HasThePhase3StructureSurface()
+    {
+        var t = typeof(Workbook);
+        AssertMethod(t, "InsertRows", isStatic: false, typeof(void), typeof(int), typeof(int));
+        AssertMethod(t, "DeleteRows", isStatic: false, typeof(void), typeof(int), typeof(int));
+        AssertMethod(t, "InsertColumns", isStatic: false, typeof(void), typeof(int), typeof(int));
+        AssertMethod(t, "DeleteColumns", isStatic: false, typeof(void), typeof(int), typeof(int));
+        Assert.Equal(["row", "count"], t.GetMethod("InsertRows")!.GetParameters().Select(p => p.Name));
+        Assert.Equal(["column", "count"], t.GetMethod("DeleteColumns")!.GetParameters().Select(p => p.Name));
+    }
 }

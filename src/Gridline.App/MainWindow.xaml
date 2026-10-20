@@ -20,7 +20,8 @@
     </Window.InputBindings>
 
     <!-- §11.2 layout, top to bottom: menu bar; name box and formula bar; grid; status bar. -->
-    <Grid>
+    <!-- D-49: nothing in the window takes input until startup (recovery) has completed. -->
+    <Grid IsEnabled="{Binding IsReady}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -34,6 +35,9 @@
                 <MenuItem Header="_Open..." InputGestureText="Ctrl+O" Command="{Binding OpenCommand}" AutomationProperties.AutomationId="MenuOpen" />
                 <MenuItem Header="_Save" InputGestureText="Ctrl+S" Command="{Binding SaveCommand}" AutomationProperties.AutomationId="MenuSave" />
                 <MenuItem Header="Save _As..." InputGestureText="Ctrl+Shift+S" Command="{Binding SaveAsCommand}" AutomationProperties.AutomationId="MenuSaveAs" />
+                <Separator />
+                <MenuItem Header="_Import CSV..." Command="{Binding ImportCsvCommand}" AutomationProperties.AutomationId="MenuImportCsv" />
+                <MenuItem Header="Ex_port CSV..." Command="{Binding ExportCsvCommand}" AutomationProperties.AutomationId="MenuExportCsv" />
                 <Separator />
                 <MenuItem Header="E_xit" Command="{Binding ExitCommand}" AutomationProperties.AutomationId="MenuExit" />
             </MenuItem>
@@ -65,7 +69,15 @@
         <ScrollViewer Grid.Row="2" CanContentScroll="True" Focusable="False" IsTabStop="False"
                       HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Visible"
                       AutomationProperties.AutomationId="GridScroller">
-            <controls:GridControl x:Name="SheetGrid" Source="{Binding}" AutomationProperties.AutomationId="Grid" />
+            <controls:GridControl x:Name="SheetGrid" Source="{Binding}" AutomationProperties.AutomationId="Grid">
+                <!-- §11.5, R75: opens on row and column headers only (GridControl.Headers.cs). -->
+                <controls:GridControl.ContextMenu>
+                    <ContextMenu AutomationProperties.AutomationId="HeaderContextMenu">
+                        <MenuItem Header="_Insert" Command="{Binding InsertRowsOrColumnsCommand}" AutomationProperties.AutomationId="ContextInsert" />
+                        <MenuItem Header="_Delete" Command="{Binding DeleteRowsOrColumnsCommand}" AutomationProperties.AutomationId="ContextDelete" />
+                    </ContextMenu>
+                </controls:GridControl.ContextMenu>
+            </controls:GridControl>
         </ScrollViewer>
 
         <!-- TextBlock text is the UIA Name (TextBlockAutomationPeer); see DECISIONS D-37. -->

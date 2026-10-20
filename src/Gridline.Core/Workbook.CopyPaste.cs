@@ -42,7 +42,7 @@ public sealed partial class Workbook
         {
             var entry = _cells[key];
             var to = new CellAddress(CellKey.Column(key) + columnOffset, CellKey.Row(key) + rowOffset);
-            string input = entry.Formula?.Root is { } root ? FormulaPrinter.Print(root, shifter) : entry.Input; // R39
+            string input = entry.Formula?.Root is { } root ? FormulaPrinter.Print(root, shifter, _nameCasing) : entry.Input; // R39, §5.5 name casing
             if (input.Length > MaxInputLength)
                 throw new ArgumentException(
                     $"The formula pasted to {to} would exceed {MaxInputLength} UTF-16 code units.", nameof(sourceRange)); // R55

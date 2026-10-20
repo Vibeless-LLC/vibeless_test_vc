@@ -64,4 +64,41 @@ public class PrecedentExtractorTests
         Eval.OnSmallStack(256 * 1024, () => p = PrecedentExtractor.Extract(parsed));
         Assert.Equal(50, p!.Cells.Count);
     }
+
+    [Theory]
+    [InlineData("SUMIF(A1:A3,\"x\",B1)", "B1:B3")]
+    [InlineData("sumif(A1:A3,\"x\",B1)", "B1:B3")]
+    [InlineData("AverageIf(A1:C2,1,(E5))", "E5:G6")]
+    [InlineData("SUMIF(A1:A3,1,B1:B1)", "B1:B3")]
+    [InlineData("SUMIF(A1:A1,1,B2:C9)", "B2:B2")]
+    [InlineData("SUMIF(A1:A3,1,ZZ1)", "ZZ1:ZZ3")]
+    [InlineData("SUMIF(A1:C1,1,ZY1)", "ZY1:ZZ1")]          // clipped at the last column
+    [InlineData("SUMIF(A1:A3,1,A100000)", "A100000:A100000")] // clipped at the last row
+    public void SumIfAndAverageIf_ResizedRectangleIsAStaticRange(string formula, string rect)
+    {
+        var p = Extract(formula);
+        Assert.Contains(CellRange.Parse(rect), p.Ranges);
+    }
+
+    [Theory]
+    [InlineData("SUMIF(A1:A3,\"x\")")]
+    [InlineData("SUMIF(A1:A3,\"x\",)")]
+    [InlineData("SUMIF(A1:A3,\"x\",1+1)")]
+    [InlineData("SUMIF(1,\"x\",B1)")]
+    [InlineData("COUNTIF(A1:A3,B1)")]
+    public void NoResizedRectangle_WhenArgumentsAreNotBothReferences(string formula)
+    {
+        var p = Extract(formula);
+        Assert.DoesNotContain(CellRange.Parse("B1:B3"), p.Ranges);
+        Assert.Empty(p.Resized);
+    }
+
+    [Fact]
+    public void SumIf_WithNames_IsResolvedByTheGraph_NotTheText()
+    {
+        var p = Extract("SUMIF(Keys,\"x\",B1)");
+        Assert.Single(p.Resized);
+        Assert.Equal(new[] { "KEYS" }, p.Names);
+        Assert.DoesNotContain(p.Ranges, r => r.TopLeft.Column == 2); // unknown until the name has a target
+    }
 }

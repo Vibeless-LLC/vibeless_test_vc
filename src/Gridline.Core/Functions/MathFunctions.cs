@@ -145,9 +145,11 @@ internal static class MathFunctions
         return CellValue.FromNumber(count);
     }
 
-    /// <summary>COUNTBLANK (R17): blank cells and "" text results; the argument must be a reference, else #VALUE!.</summary>
+    /// <summary>COUNTBLANK (R17): blank cells and "" text results; the argument must be a reference, else #VALUE!. An
+    /// undefined or deleted-target name gives its own #NAME? / #REF! (§9.6).</summary>
     private static CellValue CountBlank(IFunctionArguments a)
     {
+        if (a.TryGetReferenceError(0, out var nameError)) return nameError;
         if (!a.IsReference(0)) return ValueError;
         long count = 0;
         foreach (var cell in a.EnumerateReferenceValues(0))

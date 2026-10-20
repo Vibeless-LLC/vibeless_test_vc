@@ -1,3 +1,5 @@
+using Gridline.Core.Addressing;
+
 namespace Gridline.Core.Evaluation;
 
 /// <summary>
@@ -9,6 +11,10 @@ namespace Gridline.Core.Evaluation;
 /// </summary>
 public interface IFunctionArguments
 {
+    /// <summary>The address of the cell whose formula is being evaluated (ROW(), COLUMN() with no argument, §7.4); null when
+    /// the evaluation has no owning cell.</summary>
+    CellAddress? CurrentCell { get; }
+
     /// <summary>Number of arguments as written, omitted ones included (<c>F(1,)</c> has 2, <c>F()</c> has 0).</summary>
     int Count { get; }
 
@@ -17,11 +23,21 @@ public interface IFunctionArguments
     bool IsOmitted(int index);
 
     /// <summary>
-    /// True when the argument is written as a cell reference or range, possibly inside parentheses (ruling R12),
-    /// e.g. <c>A1</c>, <c>A1:B3</c>, <c>((A1))</c>. Anything else (literals, operators, calls, omitted) is a direct
-    /// argument.
+    /// True when the argument is written as a cell reference, range or defined name (§7.0, ruling P2), possibly inside
+    /// parentheses (ruling R12), e.g. <c>A1</c>, <c>A1:B3</c>, <c>((A1))</c>, <c>Total</c>. A name counts only while it
+    /// is defined with a live target; an undefined name (#NAME?) or a deleted target (#REF!) is a direct argument.
+    /// Anything else (literals, operators, calls, omitted) is a direct argument.
     /// </summary>
     bool IsReference(int index);
+
+    /// <summary>
+    /// True when the argument is written as a name (possibly in parentheses) that cannot act as a reference, with
+    /// <paramref name="error"/> its own error: #NAME? for an undefined name, #REF! for a deleted target (§9.6, §5.1).
+    /// Every function position that requires a reference MUST check this before answering #VALUE! for a non-reference,
+    /// so such a name yields its own error, never the function's #VALUE!. Functions that never return an error (ISBLANK)
+    /// need not. False for every other argument.
+    /// </summary>
+    bool TryGetReferenceError(int index, out CellValue error);
 
     /// <summary>
     /// Evaluates the argument to a scalar. A range argument gives #VALUE! even when 1x1 (§6.5, R11); a single-cell

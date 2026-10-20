@@ -7,7 +7,8 @@ namespace Gridline.App.ViewModels;
 /// <summary>
 /// The main window's ViewModel (§11): owns the <see cref="Core.Workbook"/>, the file path, the title and the menu
 /// commands. Partials: Selection (active cell and selection), Editing (§11.4), Files (§11.5 file commands and the
-/// unsaved-changes prompt), Clipboard (§11.6) and Recovery (§11.6 autosave and recovery). Built-in WPF binding only.
+/// unsaved-changes prompt), Csv (§11.5 Import/Export CSV), Structure (§11.5 header selection, Insert and Delete),
+/// Clipboard (§11.6) and Recovery (§11.6 autosave and recovery, the startup gate). Built-in WPF binding only.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -33,18 +34,32 @@ public sealed partial class MainViewModel : ObservableObject
         _workbook = new Workbook();
         _workbook.CellsChanged += OnCellsChanged;
 
-        NewCommand = new RelayCommand(() => New());
-        OpenCommand = new RelayCommand(() => Open());
-        SaveCommand = new RelayCommand(() => Save());
-        SaveAsCommand = new RelayCommand(() => SaveAs());
-        ExitCommand = new RelayCommand(Exit);
-        UndoCommand = new RelayCommand(Undo, CanUndoNow); // R49: the edit box while an edit is open
-        RedoCommand = new RelayCommand(Redo, CanRedoNow);
-        CopyCommand = new RelayCommand(() => Copy(), CanUseClipboard);
-        PasteCommand = new RelayCommand(() => Paste(), CanUseClipboard);
+        // Every command is unavailable until startup has completed (IsReady, D-49).
+        NewCommand = new RelayCommand(() => New(), Ready());
+        OpenCommand = new RelayCommand(() => Open(), Ready());
+        SaveCommand = new RelayCommand(() => Save(), Ready());
+        SaveAsCommand = new RelayCommand(() => SaveAs(), Ready());
+        ImportCsvCommand = new RelayCommand(() => ImportCsv(), Ready());
+        ExportCsvCommand = new RelayCommand(() => ExportCsv(), Ready());
+        ExitCommand = new RelayCommand(Exit, Ready());
+        UndoCommand = new RelayCommand(Undo, Ready(CanUndoNow)); // R49: the edit box while an edit is open
+        RedoCommand = new RelayCommand(Redo, Ready(CanRedoNow));
+        CopyCommand = new RelayCommand(() => Copy(), Ready(CanUseClipboard));
+        PasteCommand = new RelayCommand(() => Paste(), Ready(CanUseClipboard));
+        InsertRowsOrColumnsCommand = new RelayCommand(() => InsertSelected(), CanEditStructure);
+        DeleteRowsOrColumnsCommand = new RelayCommand(() => DeleteSelected(), CanEditStructure);
 
         OnSelectionMoved();
     }
+
+    private Func<bool> Ready(Func<bool>? canExecute = null) => () => IsReady && (canExecute?.Invoke() ?? true);
+
+    /// <summary>Every command, for raising CanExecuteChanged when <see cref="IsReady"/> changes.</summary>
+    private IEnumerable<RelayCommand> AllCommands =>
+    [
+        NewCommand, OpenCommand, SaveCommand, SaveAsCommand, ImportCsvCommand, ExportCsvCommand, ExitCommand,
+        UndoCommand, RedoCommand, CopyCommand, PasteCommand, InsertRowsOrColumnsCommand, DeleteRowsOrColumnsCommand,
+    ];
 
     /// <summary>The workbook currently shown. Replaced by New and by opening a file.</summary>
     public Workbook Workbook => _workbook;
@@ -65,6 +80,13 @@ public sealed partial class MainViewModel : ObservableObject
     public RelayCommand OpenCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand SaveAsCommand { get; }
+
+    /// <summary>File > Import CSV... (<c>MenuImportCsv</c>, R74).</summary>
+    public RelayCommand ImportCsvCommand { get; }
+
+    /// <summary>File > Export CSV... (<c>MenuExportCsv</c>, R74).</summary>
+    public RelayCommand ExportCsvCommand { get; }
+
     public RelayCommand ExitCommand { get; }
     public RelayCommand UndoCommand { get; }
     public RelayCommand RedoCommand { get; }
@@ -94,6 +116,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(Workbook));
         SetFilePath(filePath);
         _anchor = _active = new Core.Addressing.CellAddress(1, 1);
+        _headerAxis = null;
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
         OnSelectionMoved(); // the selection is reset to A1, so the grid scrolls there

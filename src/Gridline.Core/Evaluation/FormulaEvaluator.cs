@@ -1,3 +1,4 @@
+using Gridline.Core.Addressing;
 using Gridline.Core.Parsing;
 
 namespace Gridline.Core.Evaluation;
@@ -12,17 +13,22 @@ public static class FormulaEvaluator
 {
     /// <summary>
     /// Evaluates <paramref name="formula"/> against <paramref name="cells"/>. A failed parse gives #PARSE! (§5.4);
-    /// unknown functions and every bare name give #NAME? (§6.8; names arrive in Phase 4); a Blank final result,
-    /// e.g. <c>=A1</c> with A1 empty, gives the number 0 (§6.6). User-level problems are returned as error values;
-    /// exceptions only come from null arguments or from a provider or function that throws.
+    /// unknown functions and undefined names give #NAME? (§5.1, §9.6); a Blank final result, e.g. <c>=A1</c> with A1
+    /// empty, gives the number 0 (§6.6). A name that refers to a cell behaves like that cell reference, one that
+    /// refers to a range like that range (#VALUE! in scalar context, §6.5), and one whose target was deleted gives
+    /// #REF! (§9.6). User-level problems are returned as error values; exceptions only come from null arguments or
+    /// from a provider or function that throws.
     /// </summary>
     /// <param name="functions">Function lookup; null means no functions (every call is #NAME?).</param>
-    public static CellValue Evaluate(ParsedFormula formula, ICellValueProvider cells, IFunctionResolver? functions = null)
+    /// <param name="names">Name lookup; null means no names are defined (every name is #NAME?).</param>
+    /// <param name="currentCell">The cell that owns the formula, for ROW() and COLUMN() without an argument (§7.4).</param>
+    public static CellValue Evaluate(ParsedFormula formula, ICellValueProvider cells, IFunctionResolver? functions = null,
+        INameResolver? names = null, CellAddress? currentCell = null)
     {
         ArgumentNullException.ThrowIfNull(formula);
         ArgumentNullException.ThrowIfNull(cells);
         if (!formula.Success) return Errors.Parse;
-        var value = new EvaluationContext(cells, functions).EvaluateScalar(formula.Root!);
+        var value = new EvaluationContext(cells, functions, names, currentCell).EvaluateScalar(formula.Root!);
         return value.Kind == ValueKind.Blank ? CellValue.FromNumber(0) : value;
     }
 }
@@ -35,10 +41,12 @@ internal static class Errors
     public static readonly CellValue Num = CellValue.FromError(ErrorCodes.Num);
     public static readonly CellValue Div0 = CellValue.FromError(ErrorCodes.Div0);
     public static readonly CellValue Parse = CellValue.FromError(ErrorCodes.Parse);
+    public static readonly CellValue Ref = CellValue.FromError(ErrorCodes.Ref);
 }
 
 /// <summary>One evaluation's working state: explicit work and value stacks shared by nested argument evaluations.</summary>
-internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResolver? functions)
+internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResolver? functions, INameResolver? names = null,
+    CellAddress? currentCell = null)
 {
     private struct Frame
     {
@@ -52,6 +60,29 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
     private int _valueCount;
 
     internal ICellValueProvider Cells { get; } = cells;
+
+    internal CellAddress? CurrentCell { get; } = currentCell;
+
+    /// <summary>Resolves a name (§9.6); false when no resolver is present or the name is undefined.</summary>
+    internal bool TryResolveName(string name, out NameTarget target)
+    {
+        if (names is not null) return names.TryResolveName(name, out target);
+        target = default;
+        return false;
+    }
+
+    /// <summary>A name in scalar context: undefined → #NAME?, deleted target → #REF!, a cell → its value, a range →
+    /// #VALUE! (§6.5, even 1x1, as for <see cref="RangeNode"/>).</summary>
+    private CellValue NameValue(string name)
+    {
+        if (!TryResolveName(name, out var target)) return Errors.Name;
+        return target.Kind switch
+        {
+            NameTargetKind.Cell => Cells.GetValue(target.Range.TopLeft),
+            NameTargetKind.Range => Errors.Value,
+            _ => Errors.Ref,
+        };
+    }
 
     /// <summary>
     /// Evaluates <paramref name="root"/> to a scalar. Re-entrant: a function invoked from here may call it again for
@@ -95,7 +126,7 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
             case ErrorNode e: PushValue(CellValue.FromError(e.Code)); break;
             case CellRefNode r: PushValue(Cells.GetValue(r.Reference.Address)); break;
             case RangeNode: PushValue(Errors.Value); break;          // §6.5, R11: even 1x1
-            case NameNode: PushValue(Errors.Name); break;            // §6.8: no names in Phase 1
+            case NameNode n: PushValue(NameValue(n.Name)); break;    // §9.6
             case OmittedArgNode: PushValue(Errors.Value); break;     // §5.3, R38 (normally caught by FunctionArguments)
             case ParenNode p: PushWork(p.Inner, false); break;
             case UnaryNode u: PushWork(u, true); PushWork(u.Operand, false); break;

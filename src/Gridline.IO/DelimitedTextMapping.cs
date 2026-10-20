@@ -19,6 +19,10 @@ public static class DelimitedTextMapping
         return field[0] is '=' or '\'' ? "'" + field : field;
     }
 
+    /// <summary>The length of <see cref="ToCellInput"/>(<paramref name="field"/>), computed without building it.</summary>
+    internal static int StoredLength(string field) =>
+        field.Length > 0 && field[0] is '=' or '\'' ? field.Length + 1 : field.Length;
+
     /// <summary>The edits that write <paramref name="records"/> with field (0, 0) at <paramref name="topLeft"/>, in record
     /// then field order (row-major), one per field; empty fields give <c>""</c>, which clears the cell.</summary>
     /// <exception cref="ArgumentException">A record would land beyond row 100000 or a field beyond column ZZ.</exception>

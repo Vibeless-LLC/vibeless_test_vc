@@ -118,4 +118,51 @@ public class BuiltInFunctionTableTests
 
     [Fact]
     public void UnknownFunction_IsNameError() => Assert.Equal(E(ErrorCodes.Name), Run("NOSUCHFN(1)"));
+
+    // ---- the complete §7 library ----
+
+    private const int V = 255;
+
+    /// <summary>Every function of §7.1-§7.6 with its (min, max) argument count; an exact pin (no extras, none missing).</summary>
+    private static readonly Dictionary<string, (int Min, int Max)> Library = new()
+    {
+        // §7.1 Math (20)
+        ["SUM"] = (1, V), ["AVERAGE"] = (1, V), ["MIN"] = (1, V), ["MAX"] = (1, V), ["PRODUCT"] = (1, V),
+        ["COUNT"] = (1, V), ["COUNTA"] = (1, V), ["COUNTBLANK"] = (1, 1), ["SUMPRODUCT"] = (1, V), ["ABS"] = (1, 1),
+        ["SIGN"] = (1, 1), ["INT"] = (1, 1), ["MOD"] = (2, 2), ["POWER"] = (2, 2), ["SQRT"] = (1, 1),
+        ["PI"] = (0, 0), ["ROUND"] = (2, 2), ["ROUNDUP"] = (2, 2), ["ROUNDDOWN"] = (2, 2), ["SUMSQ"] = (1, V),
+        // §7.2 Logic and information (13)
+        ["IF"] = (2, 3), ["AND"] = (1, V), ["OR"] = (1, V), ["XOR"] = (1, V), ["NOT"] = (1, 1),
+        ["IFERROR"] = (2, 2), ["IFNA"] = (2, 2), ["ISBLANK"] = (1, 1), ["ISNUMBER"] = (1, 1), ["ISTEXT"] = (1, 1),
+        ["ISLOGICAL"] = (1, 1), ["ISERROR"] = (1, 1), ["ISNA"] = (1, 1),
+        // §7.3 Text (17)
+        ["LEN"] = (1, 1), ["LEFT"] = (1, 2), ["RIGHT"] = (1, 2), ["MID"] = (3, 3), ["UPPER"] = (1, 1),
+        ["LOWER"] = (1, 1), ["PROPER"] = (1, 1), ["TRIM"] = (1, 1), ["CONCAT"] = (1, V), ["TEXTJOIN"] = (3, V),
+        ["FIND"] = (2, 3), ["SEARCH"] = (2, 3), ["SUBSTITUTE"] = (3, 4), ["REPLACE"] = (4, 4), ["REPT"] = (2, 2),
+        ["EXACT"] = (2, 2), ["VALUE"] = (1, 1),
+        // §7.4 Lookup and reference (9)
+        ["VLOOKUP"] = (3, 4), ["HLOOKUP"] = (3, 4), ["INDEX"] = (2, 3), ["MATCH"] = (2, 3), ["CHOOSE"] = (2, V),
+        ["ROW"] = (0, 1), ["COLUMN"] = (0, 1), ["ROWS"] = (1, 1), ["COLUMNS"] = (1, 1),
+        // §7.5 Conditional aggregation (3)
+        ["SUMIF"] = (2, 3), ["COUNTIF"] = (2, 2), ["AVERAGEIF"] = (2, 3),
+        // §7.6 Date (8)
+        ["DATE"] = (3, 3), ["YEAR"] = (1, 1), ["MONTH"] = (1, 1), ["DAY"] = (1, 1), ["WEEKDAY"] = (1, 2),
+        ["EDATE"] = (2, 2), ["EOMONTH"] = (2, 2), ["DAYS"] = (2, 2),
+    };
+
+    [Fact]
+    public void Library_IsExactlyTheSeventyFunctionsOfSection7_WithTheirArities()
+    {
+        Assert.Equal(70, Library.Count);
+        var table = BuiltInFunctionTable.Default;
+        Assert.Equal(70, table.Definitions.Count);
+        Assert.Equal(Library.Keys.Order(StringComparer.Ordinal), table.Definitions.Select(d => d.Name).Order(StringComparer.Ordinal));
+        foreach (var (name, arity) in Library)
+        {
+            Assert.True(table.TryGetArity(name, out var min, out var max), name);
+            Assert.Equal((arity.Min, arity.Max), (min, max));
+            Assert.True(table.TryResolve(name, out var fn), name);
+            Assert.NotNull(fn);
+        }
+    }
 }

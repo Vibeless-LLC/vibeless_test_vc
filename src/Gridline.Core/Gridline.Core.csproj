@@ -3,5 +3,7 @@
     <InternalsVisibleTo Include="Gridline.Core.Tests" />
     <!-- Workbook.UsedCellCount (O(1)) for the App's SelectionSummary strategy choice; not part of the §9.1 surface. -->
     <InternalsVisibleTo Include="Gridline.App" />
+    <!-- Workbook.FromCells(cells, names): the loader entry for names that may hold a #REF! target (ruling P1, R59). -->
+    <InternalsVisibleTo Include="Gridline.IO" />
   </ItemGroup>
 </Project>

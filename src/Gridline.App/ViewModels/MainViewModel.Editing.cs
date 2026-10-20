@@ -46,6 +46,11 @@ public sealed partial class MainViewModel : IGridEditSource
         {
             value ??= "";
             if (value == _formulaBarText) return;
+            if (!IsReady) // before startup has completed nothing opens an edit (D-49); the box shows the text again
+            {
+                OnPropertyChanged();
+                return;
+            }
             _formulaBarText = value;
             OnPropertyChanged();
             if (!_isEditing) IsEditing = true; // raises EditStateChanged
@@ -64,7 +69,7 @@ public sealed partial class MainViewModel : IGridEditSource
 
     public void BeginEdit(string? replacement)
     {
-        if (_isEditing) return;
+        if (_isEditing || !IsReady) return;
         string text = replacement ?? _workbook.GetInput(_active.ToString());
         if (text.Length > Workbook.MaxInputLength) text = text[..Workbook.MaxInputLength];
         SetFormulaBarTextSilently(text);
@@ -89,7 +94,7 @@ public sealed partial class MainViewModel : IGridEditSource
 
     public void ClearSelection()
     {
-        if (_isEditing) return;
+        if (_isEditing || !IsReady) return;
         var used = SelectionSummary.UsedCellsIn(_workbook, Selection);
         if (used.Count == 0) return; // no edits, so no undo step (§9.3)
         var edits = new KeyValuePair<string, string>[used.Count];

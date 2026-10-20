@@ -64,6 +64,9 @@ public sealed class BuiltInFunctionTable : IFunctionResolver
         MathFunctions.Register(builder); // §7.1
         LogicFunctions.Register(builder); // §7.2
         TextFunctions.Register(builder); // §7.3
+        LookupFunctions.Register(builder); // §7.4
+        ConditionalFunctions.Register(builder); // §7.5
+        DateFunctions.Register(builder); // §7.6
         return builder.Build();
     }
 

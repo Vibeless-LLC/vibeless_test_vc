@@ -36,7 +36,7 @@ public class PerformanceGates(ITestOutputHelper output)
 
     /// <summary>R32 P-1/P-5 fixture: 100,000 cells in a 100,000-row layout; rows 1..50,000 are numeric
     /// constants in column A, rows 50,001..100,000 are simple formulas "=A{r-50000}*2".</summary>
-    private static List<KeyValuePair<string, string>> HalfConstantsHalfFormulas()
+    internal static List<KeyValuePair<string, string>> HalfConstantsHalfFormulas()
     {
         var cells = new List<KeyValuePair<string, string>>(100_000);
         for (int r = 1; r <= 50_000; r++)
@@ -188,6 +188,34 @@ public class PerformanceGates(ITestOutputHelper output)
             Assert.True(median <= 1000, $"P-5 save median {median:F1} ms > 1000 ms");
         }
         finally { DeleteQuietly(path); }
+    }
+
+    /// <summary>Internal gates (Task 7, R70): CSV import and export of the P-1 fixture, each ≤ 1.5 s.</summary>
+    [Fact(Skip = ReleaseOnly)]
+    public void Csv_Import_And_Export_100kCells_Within1500ms()
+    {
+        var wb = Workbook.FromCells(HalfConstantsHalfFormulas());
+        byte[] csv = CsvFormat.Export(wb); // warm-up
+        CsvFormat.Import(csv);
+        var exportTimes = new List<double>();
+        var importTimes = new List<double>();
+        Workbook? imported = null;
+        for (int i = 0; i < Runs; i++)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            csv = CsvFormat.Export(wb);
+            exportTimes.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+            t0 = Stopwatch.GetTimestamp();
+            imported = CsvFormat.Import(csv);
+            importTimes.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+        }
+        Assert.Equal(100_000, imported!.GetUsedAddresses().Count);
+        Assert.Equal(CellValue.FromNumber(100_000), imported.GetValue("A100000"));
+        double export = Median(exportTimes), import = Median(importTimes);
+        output.WriteLine($"CSV export 100k cells median {export:F1} ms (runs: {string.Join(", ", exportTimes.Select(t => t.ToString("F1")))})");
+        output.WriteLine($"CSV import 100k cells median {import:F1} ms (runs: {string.Join(", ", importTimes.Select(t => t.ToString("F1")))})");
+        Assert.True(export <= 1500, $"CSV export median {export:F1} ms > 1500 ms");
+        Assert.True(import <= 1500, $"CSV import median {import:F1} ms > 1500 ms");
     }
 
     /// <summary>P-7 (§12) is measured in-host, see DECISIONS D-30 for why that is reliable and the measured headroom.</summary>
