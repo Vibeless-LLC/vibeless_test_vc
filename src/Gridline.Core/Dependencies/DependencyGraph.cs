@@ -142,13 +142,6 @@ public sealed class DependencyGraph
         }
     }
 
-    /// <summary>The registered target of a name (case-insensitive), or null.</summary>
-    public CellRange? GetNameTarget(string name)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        return _nameIds.TryGetValue(name.ToUpperInvariant(), out int id) && _nameTargets.TryGetValue(id, out var r) ? r : null;
-    }
-
     /// <summary>
     /// As <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>, with
     /// <paramref name="changedNames"/> also seeding the affected set: each formula that references a changed name

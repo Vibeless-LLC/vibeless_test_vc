@@ -25,6 +25,15 @@ public interface IFunctionArguments
     bool IsReference(int index);
 
     /// <summary>
+    /// True when the argument is written as a name (possibly in parentheses) that cannot act as a reference, with
+    /// <paramref name="error"/> its own error: #NAME? for an undefined name, #REF! for a deleted target (§9.6, §5.1).
+    /// Every function position that requires a reference MUST check this before answering #VALUE! for a non-reference,
+    /// so such a name yields its own error, never the function's #VALUE!. Functions that never return an error (ISBLANK)
+    /// need not. False for every other argument.
+    /// </summary>
+    bool TryGetReferenceError(int index, out CellValue error);
+
+    /// <summary>
     /// Evaluates the argument to a scalar. A range argument gives #VALUE! even when 1x1 (§6.5, R11); a single-cell
     /// reference gives the cell's value, which is <see cref="CellValue.Blank"/> for an empty cell; an omitted argument
     /// gives #VALUE! (§5.3, R38), so a function whose parameter has a default must test <see cref="IsOmitted"/> first.

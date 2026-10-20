@@ -88,6 +88,46 @@ public class NameEvaluationTests
         Assert.Equal(E(ErrorCodes.Name), Run("Rate", Sheet)); // no resolver: no names
     }
 
+    // §9.6, §5.1 (controller ruling, Task 1 review): where a reference is required, an undefined name gives #NAME? and a
+    // deleted target #REF!, never the function's #VALUE!; ISBLANK never errors.
+    [Theory]
+    [InlineData("COUNTBLANK(Nope)", ErrorCodes.Name)]
+    [InlineData("COUNTBLANK((Nope))", ErrorCodes.Name)]
+    [InlineData("COUNTBLANK(Gone)", ErrorCodes.Ref)]
+    [InlineData("COUNTBLANK(1)", ErrorCodes.Value)]
+    public void BuiltIns_ReferenceRequiredPosition_GivesTheNamesOwnError(string formula, string code)
+    {
+        var parsed = FormulaParser.Parse(formula, null);
+        Assert.Equal(E(code), FormulaEvaluator.Evaluate(parsed, Sheet, Gridline.Core.Functions.BuiltInFunctionTable.Default, Names));
+    }
+
+    [Theory]
+    [InlineData("ISBLANK(Nope)", false)]
+    [InlineData("ISBLANK(Gone)", false)]
+    [InlineData("ISBLANK(Empty)", true)]
+    [InlineData("ISBLANK(Rate)", false)]
+    [InlineData("COUNTBLANK(Empty)=1", true)]
+    public void BuiltIns_ThroughNames(string formula, bool expected)
+    {
+        var parsed = FormulaParser.Parse(formula, null);
+        Assert.Equal(B(expected), FormulaEvaluator.Evaluate(parsed, Sheet, Gridline.Core.Functions.BuiltInFunctionTable.Default, Names));
+    }
+
+    [Fact]
+    public void TryGetReferenceError_IsTrueOnlyForUnusableNames()
+    {
+        var functions = new FakeFunctions();
+        functions.Add("REFERR", a => a.TryGetReferenceError(0, out var e) ? e : CellValue.FromText(a.IsReference(0) ? "ref" : "direct"));
+        CellValue RunRef(string f) => FormulaEvaluator.Evaluate(FormulaParser.Parse(f, null), Sheet, functions, Names);
+        Assert.Equal(E(ErrorCodes.Name), RunRef("REFERR(Nope)"));
+        Assert.Equal(E(ErrorCodes.Ref), RunRef("REFERR((Gone))"));
+        Assert.Equal(T("ref"), RunRef("REFERR(Rate)"));
+        Assert.Equal(T("ref"), RunRef("REFERR(Total)"));
+        Assert.Equal(T("ref"), RunRef("REFERR(A1)"));
+        Assert.Equal(T("direct"), RunRef("REFERR(1+1)"));
+        Assert.Equal(T("direct"), RunRef("REFERR(#NAME?)"));
+    }
+
     [Fact]
     public void UnderscoreName_EvaluatesThroughTheResolver() // R57
     {

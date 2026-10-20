@@ -244,6 +244,28 @@ public class WorkbookNamesTests
         Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount);
     }
 
+    // §9.6, §5.1 (Task 1 review ruling): an undefined name where a reference is required gives #NAME?, not #VALUE!.
+    [Fact]
+    public void ReferenceOnlyBuiltIns_ThroughNames()
+    {
+        var wb = new Workbook();
+        wb.ApplyBatch([P("A1", "1"), P("A3", "=\"\""), P("C1", "=COUNTBLANK(Area)"), P("C2", "=ISBLANK(Spot)"),
+            P("C3", "=ISBLANK(Area)"), P("C4", "=COUNTBLANK(Spot)")]);
+        Assert.Equal(E(ErrorCodes.Name), wb.GetValue("C1"));
+        Assert.Equal(CellValue.FromBoolean(false), wb.GetValue("C2")); // ISBLANK never errors (§7.2)
+        Assert.Equal(E(ErrorCodes.Name), wb.GetValue("C4"));
+
+        wb.DefineName("Area", "$A$1:$A$4");
+        wb.DefineName("Spot", "$B$1");
+        Assert.Equal(N(3), wb.GetValue("C1")); // A2, A3 ("" result) and A4
+        Assert.Equal(CellValue.FromBoolean(true), wb.GetValue("C2"));
+        Assert.Equal(CellValue.FromBoolean(false), wb.GetValue("C3")); // multi-cell range
+        Assert.Equal(N(1), wb.GetValue("C4"));
+        wb.SetCell("B1", "x");
+        Assert.Equal(CellValue.FromBoolean(false), wb.GetValue("C2"));
+        Assert.Equal(N(0), wb.GetValue("C4"));
+    }
+
     [Fact]
     public void SingleCellRangeName_IsStillARange()
     {
