@@ -33,7 +33,7 @@ internal static class Errors
     public static readonly CellValue Value = CellValue.FromError(ErrorCodes.Value);
     public static readonly CellValue Name = CellValue.FromError(ErrorCodes.Name);
     public static readonly CellValue Num = CellValue.FromError(ErrorCodes.Num);
-    public static readonly CellValue DivZero = CellValue.FromError(ErrorCodes.DivZero);
+    public static readonly CellValue Div0 = CellValue.FromError(ErrorCodes.Div0);
     public static readonly CellValue Parse = CellValue.FromError(ErrorCodes.Parse);
 }
 
@@ -56,7 +56,7 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
     /// <summary>
     /// Evaluates <paramref name="root"/> to a scalar. Re-entrant: a function invoked from here may call it again for
     /// an argument; each call works above the stack heights it found and restores them on exit (even on exceptions).
-    /// The result may be Blank (empty cell reference, omitted argument, Blank function result).
+    /// The result may be Blank (empty cell reference, Blank function result).
     /// </summary>
     public CellValue EvaluateScalar(FormulaNode root)
     {
@@ -96,7 +96,7 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
             case CellRefNode r: PushValue(Cells.GetValue(r.Reference.Address)); break;
             case RangeNode: PushValue(Errors.Value); break;          // §6.5, R11: even 1x1
             case NameNode: PushValue(Errors.Name); break;            // §6.8: no names in Phase 1
-            case OmittedArgNode: PushValue(CellValue.Blank); break;
+            case OmittedArgNode: PushValue(Errors.Value); break;     // §5.3, R38 (normally caught by FunctionArguments)
             case ParenNode p: PushWork(p.Inner, false); break;
             case UnaryNode u: PushWork(u, true); PushWork(u.Operand, false); break;
             case PercentNode p: PushWork(p, true); PushWork(p.Operand, false); break;

@@ -8,8 +8,9 @@ namespace Gridline.Core.Functions;
 /// <remarks>
 /// Aggregation (§7.0), used by SUM, AVERAGE, MIN, MAX, PRODUCT and SUMSQ: a reference argument contributes only its
 /// numeric cells (text, booleans and blanks are ignored) and an error cell propagates; a direct argument is coerced by
-/// <see cref="Coercion.TryToNumber"/> (number as is, boolean 1/0, numeric text parsed, omitted/blank 0), failure is
-/// #VALUE! and an error propagates. The first error in argument order (row-major inside a range) wins.
+/// <see cref="Coercion.TryToNumber"/> (number as is, boolean 1/0, numeric text parsed, blank 0), failure is #VALUE! and
+/// an error propagates. An omitted argument has no default and is #VALUE! in its place (§5.3, R38); only COUNT and
+/// COUNTA, which never error (§7.1), skip it. The first error in argument order (row-major inside a range) wins.
 /// Integer truncation (§6.9): only the ROUND family has an integer parameter (digits); it truncates toward zero
 /// (2.9 becomes 2, -2.9 becomes -2). INT is floor (not truncation), and no other function takes an integer argument.
 /// </remarks>
@@ -17,7 +18,7 @@ internal static class MathFunctions
 {
     private static readonly CellValue ValueError = CellValue.FromError(ErrorCodes.Value);
     private static readonly CellValue NumError = CellValue.FromError(ErrorCodes.Num);
-    private static readonly CellValue DivZeroError = CellValue.FromError(ErrorCodes.DivZero);
+    private static readonly CellValue Div0Error = CellValue.FromError(ErrorCodes.Div0);
 
     public static void Register(BuiltInFunctionTable.Builder b)
     {
@@ -97,14 +98,14 @@ internal static class MathFunctions
         {
             Kind.Sum => CellValue.FromNumber(totals.Sum),
             Kind.SumSq => CellValue.FromNumber(totals.SumSq),
-            Kind.Average => totals.Count == 0 ? DivZeroError : CellValue.FromNumber(totals.Sum / totals.Count),
+            Kind.Average => totals.Count == 0 ? Div0Error : CellValue.FromNumber(totals.Sum / totals.Count),
             Kind.Min => CellValue.FromNumber(totals.Count == 0 ? 0 : totals.Min),         // R17
             Kind.Max => CellValue.FromNumber(totals.Count == 0 ? 0 : totals.Max),         // R17
             _ => CellValue.FromNumber(totals.Count == 0 ? 0 : totals.Product),            // R17
         };
     }
 
-    /// <summary>COUNT (R17, R34): references count numbers; direct arguments count numbers, booleans, numeric text and omitted arguments (as 0). Errors are never propagated.</summary>
+    /// <summary>COUNT (§7.1, R17, R38): references count numbers; direct arguments count numbers, booleans and numeric text. Omitted arguments are ignored and errors are never propagated.</summary>
     private static CellValue Count(IFunctionArguments a)
     {
         long count = 0;
@@ -115,11 +116,7 @@ internal static class MathFunctions
                 foreach (var cell in a.EnumerateReferenceValues(i))
                     if (cell.Value.Kind == ValueKind.Number) count++;
             }
-            else if (a.IsOmitted(i))
-            {
-                count++;                                  // R34: an omitted direct argument is the number 0
-            }
-            else
+            else if (!a.IsOmitted(i))                     // R38: an omitted argument is ignored (COUNT(1,,2) = 2)
             {
                 var v = a.Evaluate(i);
                 if (v.Kind is ValueKind.Number or ValueKind.Boolean) count++;
@@ -129,7 +126,7 @@ internal static class MathFunctions
         return CellValue.FromNumber(count);
     }
 
-    /// <summary>COUNTA (R17): every non-blank value, including errors and "" results. An omitted direct argument counts (R34: it is the number 0).</summary>
+    /// <summary>COUNTA (§7.1, R17, R38): every non-blank value, including errors and "" results. An omitted argument is ignored (COUNTA(1,,2) = 2).</summary>
     private static CellValue CountA(IFunctionArguments a)
     {
         long count = 0;
@@ -140,7 +137,7 @@ internal static class MathFunctions
                 foreach (var cell in a.EnumerateReferenceValues(i))
                     if (!cell.IsBlank) count++;
             }
-            else if (a.IsOmitted(i) || a.Evaluate(i).Kind != ValueKind.Blank)
+            else if (!a.IsOmitted(i) && a.Evaluate(i).Kind != ValueKind.Blank)
             {
                 count++;
             }
@@ -246,7 +243,7 @@ internal static class MathFunctions
     private static CellValue Mod(IFunctionArguments a)
     {
         if (!TryTwoNumbers(a, out double n, out double d, out var error)) return error;
-        if (d == 0) return DivZeroError;
+        if (d == 0) return Div0Error;
         if (!(Math.Abs(n / d) < ModQuotientLimit)) return NumError;
         double r = n % d; // exact fmod, same sign as n
         if (r != 0 && (r < 0) != (d < 0)) r += d;
@@ -260,7 +257,7 @@ internal static class MathFunctions
         if (x == 0)
         {
             if (y == 0) return NumError;
-            if (y < 0) return DivZeroError;
+            if (y < 0) return Div0Error;
         }
         if (x < 0 && y != Math.Floor(y)) return NumError;
         return CellValue.FromNumber(Math.Pow(x, y));

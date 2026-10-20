@@ -21,8 +21,9 @@ public sealed class CellsChangedEventArgs : EventArgs
         Addresses = Array.AsReadOnly(addresses as string[] ?? [.. addresses]);
     }
 
-    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once. Read-only: casting to <see cref="IList{T}"/> yields a read-only list.</summary>
-    public IReadOnlyList<string> Addresses { get; }
+    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once (§9.1: declared as
+    /// <see cref="IReadOnlyCollection{T}"/>). Read-only: casting to <see cref="IList{T}"/> yields a read-only list.</summary>
+    public IReadOnlyCollection<string> Addresses { get; }
 }
 
 /// <summary>

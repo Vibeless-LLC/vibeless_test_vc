@@ -5,7 +5,8 @@ namespace Gridline.Core;
 
 /// <summary>
 /// An immutable cell value: blank, number, text, boolean or error (§9.1).
-/// Reading a payload of the wrong kind throws <see cref="InvalidOperationException"/>.
+/// Each payload accessor returns its default on the wrong kind (§9.1): <see cref="Number"/> 0, <see cref="Text"/> "",
+/// <see cref="Boolean"/> false, <see cref="Error"/> "".
 /// </summary>
 public readonly struct CellValue : IEquatable<CellValue>
 {
@@ -26,13 +27,17 @@ public readonly struct CellValue : IEquatable<CellValue>
     /// <summary>The blank value; also <c>default(CellValue)</c>.</summary>
     public static CellValue Blank => default;
 
-    public double Number => Kind == ValueKind.Number ? _number : throw Wrong(ValueKind.Number);
-    public string Text => Kind == ValueKind.Text ? _text! : throw Wrong(ValueKind.Text);
-    public bool Boolean => Kind == ValueKind.Boolean ? _boolean : throw Wrong(ValueKind.Boolean);
-    public string Error => Kind == ValueKind.Error ? _text! : throw Wrong(ValueKind.Error);
+    /// <summary>The number; 0 unless <see cref="Kind"/> is <see cref="ValueKind.Number"/> (§9.1).</summary>
+    public double Number => Kind == ValueKind.Number ? _number : 0;
 
-    private InvalidOperationException Wrong(ValueKind wanted) =>
-        new($"Value is {Kind}, not {wanted}.");
+    /// <summary>The text; "" unless <see cref="Kind"/> is <see cref="ValueKind.Text"/> (§9.1).</summary>
+    public string Text => Kind == ValueKind.Text ? _text! : "";
+
+    /// <summary>The boolean; false unless <see cref="Kind"/> is <see cref="ValueKind.Boolean"/> (§9.1).</summary>
+    public bool Boolean => Kind == ValueKind.Boolean && _boolean;
+
+    /// <summary>The error code; "" unless <see cref="Kind"/> is <see cref="ValueKind.Error"/> (§9.1).</summary>
+    public string Error => Kind == ValueKind.Error ? _text! : "";
 
     /// <summary>Negative zero becomes 0; NaN and infinities become the #NUM! error.</summary>
     public static CellValue FromNumber(double value)

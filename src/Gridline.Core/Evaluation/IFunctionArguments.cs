@@ -12,7 +12,8 @@ public interface IFunctionArguments
     /// <summary>Number of arguments as written, omitted ones included (<c>F(1,)</c> has 2, <c>F()</c> has 0).</summary>
     int Count { get; }
 
-    /// <summary>True when argument <paramref name="index"/> is omitted, e.g. the middle one of <c>IF(A1,,3)</c>.</summary>
+    /// <summary>True when argument <paramref name="index"/> is omitted, e.g. the middle one of <c>IF(A1,,3)</c>. An omitted
+    /// argument is treated as absent (§5.3, R38): the parameter's default applies, or #VALUE! where it has none.</summary>
     bool IsOmitted(int index);
 
     /// <summary>
@@ -25,7 +26,8 @@ public interface IFunctionArguments
     /// <summary>
     /// Evaluates the argument to a scalar. A range argument gives #VALUE! even when 1x1 (§6.5, R11); a single-cell
     /// reference gives the cell's value, which is <see cref="CellValue.Blank"/> for an empty cell; an omitted argument
-    /// gives Blank. Errors are returned as values, never thrown.
+    /// gives #VALUE! (§5.3, R38), so a function whose parameter has a default must test <see cref="IsOmitted"/> first.
+    /// Errors are returned as values, never thrown.
     /// </summary>
     CellValue Evaluate(int index);
 

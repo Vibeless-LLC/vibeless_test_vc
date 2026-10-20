@@ -84,7 +84,7 @@ public class OperatorTests
     [InlineData("1/(2-2)")]
     [InlineData("5/A1")]       // blank divisor is 0
     [InlineData("5/FALSE")]
-    public void DivisionByZero(string formula) => Assert.Equal(E(ErrorCodes.DivZero), Run(formula));
+    public void DivisionByZero(string formula) => Assert.Equal(E(ErrorCodes.Div0), Run(formula));
 
     [Theory]
     [InlineData("1E308*10")]
@@ -97,8 +97,8 @@ public class OperatorTests
 
     [Theory]
     [InlineData("0^0", ErrorCodes.Num)]
-    [InlineData("0^-1", ErrorCodes.DivZero)]
-    [InlineData("0^-0.5", ErrorCodes.DivZero)]
+    [InlineData("0^-1", ErrorCodes.Div0)]
+    [InlineData("0^-0.5", ErrorCodes.Div0)]
     [InlineData("(-8)^(1/3)", ErrorCodes.Num)]
     [InlineData("(-2)^0.5", ErrorCodes.Num)]
     [InlineData("A1^A1", ErrorCodes.Num)]       // blank^blank = 0^0
@@ -208,4 +208,7 @@ public class OperatorTests
 
     [Fact]
     public void Comparison_ChainsLeftToRight() => Assert.Equal(B(true), Run("1=2=FALSE"));
+
+    // §6.3, §6.10.4: equality is exact IEEE, with no 15-digit tolerance.
+    [Fact] public void Equality_IsExactIeee_PointOnePlusPointTwo_IsNotPointThree() => Assert.Equal(B(false), Run("0.1+0.2=0.3"));
 }

@@ -169,8 +169,10 @@ internal static class StrictLoader
             if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
                 throw Fail($"cell entry {index} must have exactly two elements.");
 
-            if (!CellAddress.TryParse(address, out var parsed) || !string.Equals(parsed.ToString(), address, StringComparison.Ordinal))
-                throw Fail($"cell entry {index}: \"{address}\" is not a canonical cell address.");
+            // §8.2/§4.2: any valid address is accepted (case-insensitive, optional `$`); FromCells stores it canonically
+            // and rejects duplicates compared canonically (so "A1" and "a1" are duplicates).
+            if (!CellAddress.TryParse(address, out _))
+                throw Fail($"cell entry {index}: \"{address}\" is not a valid cell address.");
             if (input.Length == 0) throw Fail($"cell {address} has an empty input.");
             if (input.Length > Workbook.MaxInputLength) throw Fail($"cell {address} input exceeds {Workbook.MaxInputLength} characters.");
 

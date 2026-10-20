@@ -15,12 +15,17 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
 
     public bool IsReference(int index) => Unwrap(Node(index)) is CellRefNode or RangeNode;
 
-    /// <summary>Re-entry point. Backstop (R13b): if the thread stack is nearly exhausted, return #NUM! instead of recursing.</summary>
+    /// <summary>
+    /// Re-entry point. An omitted argument is #VALUE! (§5.3, R38): a function with a default for that position checks
+    /// <see cref="IsOmitted"/> first. Backstop (R13b): if the thread stack is nearly exhausted, return #NUM! instead of
+    /// recursing.
+    /// </summary>
     public CellValue Evaluate(int index)
     {
         var node = Node(index);
+        if (node is OmittedArgNode) return Errors.Value;
         if (!RuntimeHelpers.TryEnsureSufficientExecutionStack()) return Errors.Num;
-        return node is OmittedArgNode ? CellValue.Blank : context.EvaluateScalar(node);
+        return context.EvaluateScalar(node);
     }
 
     public ReferenceValues EnumerateReferenceValues(int index) => Unwrap(Node(index)) switch

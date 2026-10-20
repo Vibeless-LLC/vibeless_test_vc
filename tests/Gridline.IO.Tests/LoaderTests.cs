@@ -126,9 +126,24 @@ public class LoaderTests
     [Fact] public void Fail_EntryInputNotString_Number() => Bad(Doc("[[\"A1\",1]]"));
     [Fact] public void Fail_EntryInputNotString_Null() => Bad(Doc("[[\"A1\",null]]"));
     [Fact] public void Fail_EntryInputNotString_Bool() => Bad(Doc("[[\"A1\",true]]"));
-    [Fact] public void Fail_AddressLowercase() => Bad(Doc("[[\"a1\",\"1\"]]"));
-    [Fact] public void Fail_AddressDollar() => Bad(Doc("[[\"$A$1\",\"1\"]]"));
-    [Fact] public void Fail_AddressPartialDollar() => Bad(Doc("[[\"A$1\",\"1\"]]"));
+    // §8.2 + §4.2: any valid address loads (case-insensitive, optional `$` markers) and is stored canonically.
+    [Theory]
+    [InlineData("a1", "A1")]
+    [InlineData("zz100000", "ZZ100000")]
+    [InlineData("$A$1", "A1")]
+    [InlineData("A$1", "A1")]
+    [InlineData("$b7", "B7")]
+    public void NonCanonicalValidAddress_Loads(string address, string canonical)
+    {
+        var wb = Load(Doc("[[\"" + address + "\",\"5\"]]"));
+        Assert.Equal([canonical], wb.GetUsedAddresses());
+        Assert.Equal("5", wb.GetInput(canonical));
+    }
+
+    // §8.2: duplicates are compared case-insensitively (and ignoring `$`), so these fail.
+    [Fact] public void Fail_AddressDuplicate_CaseInsensitive() => Bad(Doc("[[\"A1\",\"1\"],[\"a1\",\"2\"]]"));
+    [Fact] public void Fail_AddressDuplicate_DollarMarkers() => Bad(Doc("[[\"b2\",\"1\"],[\"$B$2\",\"2\"]]"));
+    [Fact] public void Fail_AddressLoneDollar() => Bad(Doc("[[\"$\",\"1\"]]"));
     [Fact] public void Fail_AddressEmpty() => Bad(Doc("[[\"\",\"1\"]]"));
     [Fact] public void Fail_AddressGarbage() => Bad(Doc("[[\"hello\",\"1\"]]"));
     [Fact] public void Fail_AddressWhitespace() => Bad(Doc("[[\" A1\",\"1\"]]"));

@@ -67,6 +67,9 @@ internal static class TextFunctions
 
     private static CellValue Text(string s) => s.Length == 0 ? EmptyText : CellValue.FromText(s);
 
+    /// <summary>True when an optional parameter is written and not omitted; an omitted argument is absent (§5.3, R38).</summary>
+    private static bool Given(IFunctionArguments a, int index) => index < a.Count && !a.IsOmitted(index);
+
     // ---- functions ----
 
     private static CellValue Len(IFunctionArguments a) =>
@@ -78,9 +81,8 @@ internal static class TextFunctions
     private static CellValue Edge(IFunctionArguments a, bool fromLeft)
     {
         if (!TryText(a, 0, out var s, out var err)) return err;
-        long n = 1;
-        if (a.Count > 1 && !a.IsOmitted(1) && !TryInt(a, 1, out n, out err)) return err;
-        if (a.Count > 1 && a.IsOmitted(1)) n = 0; // LEFT(t,) is LEFT(t,0), as Excel
+        long n = 1;                                   // §7.3 [n=1]; omitted counts as absent (R38): LEFT(t,) is LEFT(t,1)
+        if (Given(a, 1) && !TryInt(a, 1, out n, out err)) return err;
         if (n < 0) return ValueError;
         int take = (int)Math.Min(n, s.Length);
         return Text(fromLeft ? s[..take] : s[^take..]);
@@ -227,8 +229,8 @@ internal static class TextFunctions
     {
         if (!TryText(a, 0, out var find, out var err)) return err;
         if (!TryText(a, 1, out var within, out err)) return err;
-        long start = 1;
-        if (a.Count > 2 && !TryInt(a, 2, out start, out err)) return err;
+        long start = 1;                               // §7.3 [s=1]; omitted counts as absent (R38)
+        if (Given(a, 2) && !TryInt(a, 2, out start, out err)) return err;
         if (start < 1 || start > within.Length + 1) return ValueError;
         int from = (int)(start - 1);
 
@@ -247,12 +249,12 @@ internal static class TextFunctions
     /// <summary>Zero-based index of the first match of <paramref name="pattern"/> at or after <paramref name="from"/>, or -1.</summary>
     private static int WildcardSearch(string pattern, string text, int from)
     {
-        // Tokenise: ~ escapes * ? ~ ; a lone ~ stands for itself.
+        // Tokenise (§7.3): ~ escapes the next character, whatever it is; a trailing lone ~ stands for itself.
         var tokens = new List<Token>(pattern.Length);
         for (int i = 0; i < pattern.Length; i++)
         {
             char c = pattern[i];
-            if (c == '~' && i + 1 < pattern.Length && pattern[i + 1] is '*' or '?' or '~')
+            if (c == '~' && i + 1 < pattern.Length)
                 tokens.Add(new Token(Kind.Literal, pattern[++i]));
             else if (c == '*') tokens.Add(new Token(Kind.Star, c));
             else if (c == '?') tokens.Add(new Token(Kind.AnyOne, c));
@@ -304,8 +306,8 @@ internal static class TextFunctions
         if (!TryText(a, 0, out var text, out var err)) return err;
         if (!TryText(a, 1, out var oldText, out err)) return err;
         if (!TryText(a, 2, out var newText, out err)) return err;
-        long instance = 0;
-        if (a.Count > 3)
+        long instance = 0;                            // absent (or omitted, R38): every occurrence
+        if (Given(a, 3))
         {
             if (!TryInt(a, 3, out instance, out err)) return err;
             if (instance < 1) return ValueError;

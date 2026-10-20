@@ -13,7 +13,7 @@ public class WorkbookTests
     /// <summary>Records every CellsChanged event raised by a workbook.</summary>
     private sealed class EventLog
     {
-        public List<IReadOnlyList<string>> Events { get; } = [];
+        public List<IReadOnlyCollection<string>> Events { get; } = [];
         public EventLog(Workbook wb) => wb.CellsChanged += (sender, e) =>
         {
             Assert.Same(wb, sender);
@@ -636,7 +636,7 @@ public class WorkbookTests
         var wb = Workbook.FromCells([new("A1", "=B1"), new("B1", "=A1"), new("C1", "=1/0"), new("D1", "=(")]);
         Assert.Equal(E(ErrorCodes.Circ), wb.GetValue("A1"));
         Assert.Equal(E(ErrorCodes.Circ), wb.GetValue("B1"));
-        Assert.Equal(E(ErrorCodes.DivZero), wb.GetValue("C1"));
+        Assert.Equal(E(ErrorCodes.Div0), wb.GetValue("C1"));
         Assert.Equal(E(ErrorCodes.Parse), wb.GetValue("D1"));
     }
 
@@ -682,7 +682,7 @@ public class WorkbookTests
     public void CellsChangedAddresses_AreReadOnly()
     {
         var wb = new Workbook();
-        IReadOnlyList<string>? seen = null;
+        IReadOnlyCollection<string>? seen = null;
         wb.CellsChanged += (_, e) => seen = e.Addresses;
         wb.SetCell("A1", "1");
         Assert.NotNull(seen);

@@ -30,8 +30,11 @@ public class LogicFunctionTests
         Assert.Equal(N(3), Run("IF(A1,,3)", new DictionaryCells()));          // A1 blank -> false branch
         Assert.Equal(N(0), Run("IF(A1,,3)", cells));                            // omitted true -> 0
         Assert.Equal(F, Run("IF(FALSE,1)"));                                    // no false arg -> FALSE
-        Assert.Equal(N(0), Run("IF(FALSE,1,)"));                                // omitted false -> 0 (Excel)
-        Assert.Equal(N(0), Run("IF(TRUE,,)"));
+        Assert.Equal(F, Run("IF(FALSE,1,)"));                                   // R38: omitted false is absent -> FALSE
+        Assert.Equal(N(0), Run("IF(TRUE,,)"));                                  // omitted true -> 0
+        Assert.Equal(F, Run("IF(FALSE,,)"));
+        Assert.Equal(E(ErrorCodes.Value), Run("IF(,1,2)"));                     // R38: the condition has no default
+        Assert.Equal(E(ErrorCodes.Value), Run("IF(,1)"));
     }
 
     [Fact]
@@ -41,7 +44,7 @@ public class LogicFunctionTests
         Assert.Equal(E(ErrorCodes.Value), Run("IF(\"1\",1,2)"));
         Assert.Equal(N(2), Run("IF(A1,1,2)"));                                  // blank is FALSE
         Assert.Equal(E(ErrorCodes.NA), Run("IF(A1,1,2)", new DictionaryCells().Set("A1", E(ErrorCodes.NA))));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("IF(1/0,1,2)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("IF(1/0,1,2)"));
     }
 
     [Fact]
@@ -66,7 +69,7 @@ public class LogicFunctionTests
         Assert.Equal(T, Run("AND(TRUE,1,\"TRUE\")"));
         Assert.Equal(F, Run("AND(TRUE,0)"));
         Assert.Equal(E(ErrorCodes.Value), Run("AND(TRUE,\"abc\")"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("AND(TRUE,1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("AND(TRUE,1/0)"));
     }
 
     [Fact]
@@ -138,16 +141,16 @@ public class LogicFunctionTests
     {
         Assert.Equal(N(1), Run("IFERROR(1,1/0)"));
         Assert.Equal(N(1), Run("IFERROR(1,NOSUCHFN(1))"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("IFERROR(1/0,1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("IFERROR(1/0,1/0)"));
     }
 
     [Fact]
     public void IfNa_PassesOtherErrors()
     {
-        var cells = new DictionaryCells().Set("A1", E(ErrorCodes.NA)).Set("A2", E(ErrorCodes.DivZero));
+        var cells = new DictionaryCells().Set("A1", E(ErrorCodes.NA)).Set("A2", E(ErrorCodes.Div0));
         Assert.Equal(N(9), Run("IFNA(A1,9)", cells));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("IFNA(A2,9)", cells));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("IFNA(1/0,9)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("IFNA(A2,9)", cells));
+        Assert.Equal(E(ErrorCodes.Div0), Run("IFNA(1/0,9)"));
         Assert.Equal(N(5), Run("IFNA(5,1/0)"));
         Assert.Equal(N(1), Run("IFNA(A1,1)", cells));
     }
@@ -180,7 +183,7 @@ public class LogicFunctionTests
     public void TypeTests()
     {
         var cells = new DictionaryCells().Set("A1", 1).Set("A2", "t").Set("A3", true)
-            .Set("A4", E(ErrorCodes.NA)).Set("A5", E(ErrorCodes.DivZero));
+            .Set("A4", E(ErrorCodes.NA)).Set("A5", E(ErrorCodes.Div0));
         Assert.Equal(T, Run("ISNUMBER(A1)", cells));
         Assert.Equal(F, Run("ISNUMBER(A2)", cells));
         Assert.Equal(F, Run("ISNUMBER(B9)", cells));
