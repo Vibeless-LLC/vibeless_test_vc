@@ -311,6 +311,32 @@ public class TokenizerTests
         Assert.Equal("my_name.x1", t.Text);
     }
 
+    // R57 (§5.1, §9.6): a word token may start with '_'; it can only be a name.
+    [Theory]
+    [InlineData("_x")]
+    [InlineData("_")]
+    [InlineData("_A1")]
+    [InlineData("_TRUE")]
+    [InlineData("_a.b_1")]
+    public void UnderscoreInitialWordIsName(string w)
+    {
+        var t = Ok(w);
+        Assert.Equal([TokenKind.Name, TokenKind.End], t.Select(x => x.Kind));
+        Assert.Equal(w, t[0].Text);
+    }
+
+    [Fact]
+    public void UnderscoreInitialWordBeforeParenIsStillAName()
+        => Assert.Equal([TokenKind.Name, TokenKind.LParen, TokenKind.Number, TokenKind.RParen, TokenKind.End], Kinds("_f(1)"));
+
+    [Fact]
+    public void UnderscoreInitialWordWithDollarIsError() => Fails("_x$1", 0);
+
+    [Theory]
+    [InlineData("_x(1)")]
+    [InlineData("1+_x$1")]
+    public void UnderscoreNameMisuse_FailsToParse(string formula) => Assert.False(FormulaParser.Parse(formula, null).Success);
+
     [Fact]
     public void NullInputThrows() => Assert.Throws<ArgumentNullException>(() => Tokenizer.Tokenize(null!));
 }

@@ -13,7 +13,15 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
 
     public bool IsOmitted(int index) => Node(index) is OmittedArgNode;
 
-    public bool IsReference(int index) => Unwrap(Node(index)) is CellRefNode or RangeNode;
+    /// <summary>A cell reference, a range, or a defined name with a live target (§7.0, ruling P2). An undefined name or
+    /// one whose target was deleted is a direct argument that evaluates to its error (#NAME? / #REF!), so aggregation
+    /// propagates it.</summary>
+    public bool IsReference(int index) => Unwrap(Node(index)) switch
+    {
+        CellRefNode or RangeNode => true,
+        NameNode n => context.TryResolveName(n.Name, out var t) && t.Kind != NameTargetKind.Invalid,
+        _ => false,
+    };
 
     /// <summary>
     /// Re-entry point. An omitted argument is #VALUE! (§5.3, R38): a function with a default for that position checks
@@ -32,6 +40,8 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
     {
         CellRefNode r => new ReferenceValues(context.Cells, new CellRange(r.Reference.Address, r.Reference.Address)),
         RangeNode r => new ReferenceValues(context.Cells, new CellRange(r.Start.Address, r.End.Address)),
+        NameNode n when context.TryResolveName(n.Name, out var t) && t.Kind != NameTargetKind.Invalid
+            => new ReferenceValues(context.Cells, t.Range),
         _ => throw new InvalidOperationException($"Argument {index} is not a reference."),
     };
 

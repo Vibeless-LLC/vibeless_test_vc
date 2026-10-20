@@ -166,4 +166,14 @@ public class PublicApiShapeTests
         AssertMethod(t, "MarkSaved", isStatic: false, typeof(void));
         AssertMethod(t, "CopyPaste", isStatic: false, typeof(void), typeof(string), typeof(string));
     }
+
+    // §9.1 Phase 3 names (§9.6); the insert/delete members land with structure edits.
+    [Fact]
+    public void Workbook_HasThePhase3NameSurface()
+    {
+        var t = typeof(Workbook);
+        AssertMethod(t, "DefineName", isStatic: false, typeof(void), typeof(string), typeof(string));
+        AssertMethod(t, "DeleteName", isStatic: false, typeof(void), typeof(string));
+        AssertMethod(t, "GetNames", isStatic: false, typeof(IReadOnlyList<KeyValuePair<string, string>>));
+    }
 }

@@ -55,6 +55,7 @@ public sealed partial class Workbook
     private readonly DependencyGraph _graph = new();
     private readonly IFunctionResolver _functions;
     private readonly RecalcTarget _target;
+    private readonly NameCasing _nameCasing; // §5.5: rewritten formulas print names in their definition casing
 
     // Per-call scratch, reused so an edit allocates no whole-workbook structures (P-3).
     private readonly CellAddress[] _changedOne = new CellAddress[1];
@@ -71,6 +72,7 @@ public sealed partial class Workbook
         ArgumentNullException.ThrowIfNull(functions);
         _functions = functions;
         _target = new RecalcTarget(this);
+        _nameCasing = new NameCasing(this);
     }
 
     /// <summary>The statistics of the last recalculation; 0 evaluated after a no-op SetCell (R24).</summary>
@@ -207,9 +209,17 @@ public sealed partial class Workbook
         return result;
     }
 
-    /// <summary>The store the dependency graph recalculates against; kept private so the public surface stays §9.1.</summary>
+    /// <summary>The store the dependency graph recalculates against, including name resolution for evaluation (§9.6);
+    /// kept private so the public surface stays §9.1.</summary>
     private sealed class RecalcTarget(Workbook owner) : IRecalcTarget
     {
+        public bool TryResolveName(string name, out NameTarget target)
+        {
+            if (owner._names.TryGetValue(name, out var e)) { target = e.Target; return true; }
+            target = default;
+            return false;
+        }
+
         public CellValue GetValue(CellAddress address) =>
             owner._cells.TryGetValue(CellKey.Pack(address), out var e) ? e.Value : CellValue.Blank;
 

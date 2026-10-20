@@ -43,6 +43,25 @@ public class UndoHistoryTests
         Assert.Equal(2, new UndoStep([new CellEdit(a1, "", "1"), new CellEdit(CellAddress.Parse("A2"), "", "2")]).CellEdits.Length);
     }
 
+    // §9.3, §9.6: a name step carries each changed name once (case-insensitively), and each edit has at least one side.
+    [Fact]
+    public void UndoStep_NameEdits_AreValidated()
+    {
+        var rate = new NameDefinition("Rate", "$A$1");
+        var step = new UndoStep([], [new NameEdit(null, rate)]);
+        Assert.Empty(step.CellEdits);
+        Assert.Equal("Rate", Assert.Single(step.NameEdits).Name);
+        Assert.Empty(new UndoStep([]).NameEdits);
+        Assert.Equal("RATE", new NameEdit(rate, new NameDefinition("RATE", "$A$1")).Name);
+
+        Assert.Throws<ArgumentNullException>(() => new UndoStep([], default));
+        Assert.Throws<ArgumentException>(() => new UndoStep([], [new NameEdit(null, null)]));
+        Assert.Throws<ArgumentException>(() => new UndoStep([], [new NameEdit(rate, new NameDefinition("Other", "$A$1"))]));
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new UndoStep([], [new NameEdit(null, rate), new NameEdit(new NameDefinition("RATE", "$B$1"), null)]));
+        Assert.Equal("nameEdits", ex.ParamName);
+    }
+
     [Fact]
     public void PeekThenComplete_MovesStepsBetweenStacks()
     {

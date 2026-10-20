@@ -20,6 +20,15 @@ public sealed class DependencyGraph
     private readonly RangeIndex _ranges = new();
     private readonly List<int> _scratch = [];
 
+    // Defined-name targets (§9.6, §6.7): each upper-cased name gets a stable id; a live target is registered in its own
+    // range index (values are name ids), so an edit inside the target reaches the name's dependents and cycles through
+    // names are ordinary graph cycles.
+    private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+    private readonly List<string> _nameById = [];
+    private readonly Dictionary<int, CellRange> _nameTargets = [];
+    private readonly RangeIndex _nameRanges = new();
+    private readonly List<int> _nameScratch = [];
+
     /// <summary>Number of formula cells (failed parses included).</summary>
     public int FormulaCount => _formulas.Count;
 
@@ -108,6 +117,71 @@ public sealed class DependencyGraph
         return Run(schedule, target, functions);
     }
 
+    /// <summary>
+    /// Records the target of a defined name (§9.6, §6.7), case-insensitively (R20): every formula referencing the name
+    /// then depends on each cell of <paramref name="target"/>. Null means the name is undefined or its target was
+    /// deleted (#REF!): it has no target cells. Idempotent. The formulas that reference the name are already known from
+    /// their text (<see cref="SetFormula"/>), defined or not, so defining a name later resolves them.
+    /// </summary>
+    public void SetNameTarget(string name, CellRange? target)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        string upper = name.ToUpperInvariant();
+        if (!_nameIds.TryGetValue(upper, out int id))
+        {
+            if (target is null) return;
+            id = _nameById.Count;
+            _nameIds.Add(upper, id);
+            _nameById.Add(upper);
+        }
+        if (_nameTargets.Remove(id, out var old)) _nameRanges.Remove(old, id);
+        if (target is { } range)
+        {
+            _nameTargets.Add(id, range);
+            _nameRanges.Add(range, id);
+        }
+    }
+
+    /// <summary>The registered target of a name (case-insensitive), or null.</summary>
+    public CellRange? GetNameTarget(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _nameIds.TryGetValue(name.ToUpperInvariant(), out int id) && _nameTargets.TryGetValue(id, out var r) ? r : null;
+    }
+
+    /// <summary>
+    /// As <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>, with
+    /// <paramref name="changedNames"/> also seeding the affected set: each formula that references a changed name
+    /// (defined, redefined or deleted, §9.6) and all its transitive dependents. Only those re-evaluate (§6.7). Name
+    /// targets must already be updated (<see cref="SetNameTarget"/>).
+    /// </summary>
+    public RecalcResult Recalculate(IReadOnlyCollection<CellAddress> changed, IReadOnlyCollection<string> changedNames,
+        IRecalcTarget target, IFunctionResolver? functions)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+        ArgumentNullException.ThrowIfNull(changedNames);
+        ArgumentNullException.ThrowIfNull(target);
+        if (changedNames.Count == 0) return Recalculate(changed, target, functions);
+
+        var schedule = new Schedule(16);
+        foreach (var name in changedNames)
+        {
+            _scratch.Clear();
+            CollectNameDependents(name.ToUpperInvariant(), _scratch);
+            foreach (int d in _scratch) schedule.AddNode(d);
+        }
+        foreach (var address in changed)
+        {
+            int key = CellKey.Pack(address);
+            if (_formulas.ContainsKey(key)) { schedule.AddNode(key); continue; }
+            _scratch.Clear();
+            CollectDependents(key, _scratch);
+            foreach (int d in _scratch) schedule.AddNode(d);
+        }
+        if (schedule.Nodes.Count == 0) return RecalcResult.None;
+        return Run(schedule, target, functions);
+    }
+
     /// <summary>Recalculates every formula cell (e.g. after a load); same cycle and ordering rules as <see cref="Recalculate"/>.</summary>
     /// <exception cref="InvalidOperationException">A formula cell has no formula in the target; thrown before any value is written.</exception>
     public RecalcResult RecalculateAll(IRecalcTarget target, IFunctionResolver? functions)
@@ -139,6 +213,17 @@ public sealed class DependencyGraph
         if (_cellDependents.TryGetValue(key, out var direct))
             foreach (int d in direct) output.Add(d);
         _ranges.CollectDependents(CellKey.Column(key), CellKey.Row(key), output);
+        if (_nameRanges.RangeCount == 0) return; // P-3: no defined names, no extra work
+        _nameScratch.Clear();
+        _nameRanges.CollectDependents(CellKey.Column(key), CellKey.Row(key), _nameScratch);
+        foreach (int id in _nameScratch) CollectNameDependents(_nameById[id], output);
+    }
+
+    /// <summary>Appends the formulas whose text references the upper-cased name.</summary>
+    private void CollectNameDependents(string upperName, List<int> output)
+    {
+        if (_nameDependents.TryGetValue(upperName, out var set))
+            foreach (int d in set) output.Add(d);
     }
 
     /// <summary>The affected subgraph: nodes in discovery order and their dependent edges in CSR form.</summary>
@@ -200,7 +285,7 @@ public sealed class DependencyGraph
             for (int k = start; k < end; k++)
             {
                 int n = order[k];
-                var value = cyclic ? circ : FormulaEvaluator.Evaluate(formulas[n], target, functions);
+                var value = cyclic ? circ : FormulaEvaluator.Evaluate(formulas[n], target, functions, target);
                 var address = addresses[n];
                 if (target.GetValue(address) != value) changedCells.Add(address);
                 target.SetComputedValue(address, value);

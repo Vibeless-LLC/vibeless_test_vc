@@ -17,9 +17,10 @@ public interface IFunctionArguments
     bool IsOmitted(int index);
 
     /// <summary>
-    /// True when the argument is written as a cell reference or range, possibly inside parentheses (ruling R12),
-    /// e.g. <c>A1</c>, <c>A1:B3</c>, <c>((A1))</c>. Anything else (literals, operators, calls, omitted) is a direct
-    /// argument.
+    /// True when the argument is written as a cell reference, range or defined name (§7.0, ruling P2), possibly inside
+    /// parentheses (ruling R12), e.g. <c>A1</c>, <c>A1:B3</c>, <c>((A1))</c>, <c>Total</c>. A name counts only while it
+    /// is defined with a live target; an undefined name (#NAME?) or a deleted target (#REF!) is a direct argument.
+    /// Anything else (literals, operators, calls, omitted) is a direct argument.
     /// </summary>
     bool IsReference(int index);
 

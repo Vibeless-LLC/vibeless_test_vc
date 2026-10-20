@@ -5,7 +5,7 @@ using Gridline.Core.Dependencies;
 
 namespace Gridline.Core;
 
-// The multi-cell mutation path shared by SetCell, ApplyBatch, Undo and Redo (§9.2, §9.3); the undo stack itself
+// The mutation path shared by SetCell, ApplyBatch, CopyPaste, DefineName, DeleteName, Undo and Redo (§9.2, §9.3); the undo stack itself
 // lives in Gridline.Core.Commands (UndoHistory, UndoStep).
 public sealed partial class Workbook
 {
@@ -57,15 +57,16 @@ public sealed partial class Workbook
     public void MarkSaved() => _history.MarkSaved();
 
     /// <summary>
-    /// Restores the exact prior inputs of the newest step (§9.3), recalculates and raises <see cref="CellsChanged"/>
-    /// once with every touched cell plus every formula whose value changed. Creates no step. Returns false, changing
-    /// nothing (not even <see cref="LastRecalc"/>), when there is nothing to undo. Atomic on exceptions (§9.2).
+    /// Restores the exact prior inputs and names of the newest step (§9.3), recalculates and raises
+    /// <see cref="CellsChanged"/> once with every touched cell plus every formula whose value changed (not raised when
+    /// that set is empty, which only a names-only step can produce). Creates no step. Returns false, changing nothing
+    /// (not even <see cref="LastRecalc"/>), when there is nothing to undo. Atomic on exceptions (§9.2).
     /// </summary>
     public bool Undo()
     {
         var step = _history.PeekUndo();
         if (step is null) return false;
-        var result = Apply(step.CellEdits, forward: false);
+        var result = Apply(step, forward: false);
         _history.CompleteUndo();
         Finish(step.CellEdits, result);
         return true;
@@ -76,7 +77,7 @@ public sealed partial class Workbook
     {
         var step = _history.PeekRedo();
         if (step is null) return false;
-        var result = Apply(step.CellEdits, forward: true);
+        var result = Apply(step, forward: true);
         _history.CompleteRedo();
         Finish(step.CellEdits, result);
         return true;
@@ -85,28 +86,33 @@ public sealed partial class Workbook
     /// <summary>Applies a new step, records it (clearing redo, §9.3), then publishes the result.</summary>
     private void Perform(UndoStep step)
     {
-        var result = Apply(step.CellEdits, forward: true);
+        var result = Apply(step, forward: true);
         _history.Record(step);
         Finish(step.CellEdits, result);
     }
 
-    /// <summary>Sets LastRecalc and raises CellsChanged once. Runs after the edit and the history are committed, so
-    /// a throwing subscriber leaves the edit in place (R25).</summary>
+    /// <summary>Sets LastRecalc and raises CellsChanged once, unless no address changed (§9.2, R60). Runs after the
+    /// edit and the history are committed, so a throwing subscriber leaves the edit in place (R25).</summary>
     private void Finish(ImmutableArray<CellEdit> edits, RecalcResult result)
     {
         LastRecalc = new RecalcStats(result.EvaluatedFormulaCount);
         var handler = CellsChanged;
-        if (handler is not null) handler(this, new CellsChangedEventArgs(ChangedAddresses(edits, result.ChangedCells)));
+        if (handler is null || (edits.Length == 0 && result.ChangedCells.Count == 0)) return;
+        handler(this, new CellsChangedEventArgs(ChangedAddresses(edits, result.ChangedCells)));
     }
 
     /// <summary>
-    /// Sets every edited cell to its new input (<paramref name="forward"/>) or its old input, updates the edges and
-    /// runs one recalculation with all edited cells in the changed set. Atomic (§9.2): on an exception every cell
-    /// entry, edge and written value is restored and the exception propagates. Each address appears at most once
+    /// Sets every edited cell to its new input (<paramref name="forward"/>) or its old input, and every edited name to
+    /// its new or old definition, updates the edges and name targets, and runs one recalculation with all edited cells
+    /// and every name whose target changed in the changed set (§6.7: only the name's dependents re-evaluate; a
+    /// casing-only redefinition re-evaluates nothing). Atomic (§9.2): on an exception every cell entry, name, edge and
+    /// written value is restored and the exception propagates. Each address and each name appears at most once
     /// (enforced by the <see cref="UndoStep"/> constructor).
     /// </summary>
-    private RecalcResult Apply(ImmutableArray<CellEdit> edits, bool forward)
+    private RecalcResult Apply(UndoStep step, bool forward)
     {
+        var edits = step.CellEdits;
+        var nameEdits = step.NameEdits;
         int n = edits.Length;
         // Pure; nothing is mutated yet. A formula keeps the cell's old value until recalc writes the new one, which is
         // what RecalcResult.ChangedCells compares against (RecalcResult contract).
@@ -130,7 +136,21 @@ public sealed partial class Workbook
             for (int i = 0; i < n; i++) changed[i] = edits[i].Address;
         }
 
-        int touched = 0; // cells [0, touched) may have been mutated
+        int m = nameEdits.Length;
+        NameEntry?[] oldNames = m == 0 ? [] : new NameEntry?[m];
+        NameEntry?[] newNames = m == 0 ? [] : new NameEntry?[m];
+        List<string>? changedNames = null;
+        for (int i = 0; i < m; i++)
+        {
+            var definition = forward ? nameEdits[i].After : nameEdits[i].Before;
+            _names.TryGetValue(nameEdits[i].Name, out oldNames[i]);
+            newNames[i] = definition is { } d ? CreateNameEntry(d) : null;
+            if (!string.Equals(oldNames[i]?.RefersTo, newNames[i]?.RefersTo, StringComparison.Ordinal))
+                (changedNames ??= []).Add(nameEdits[i].Name);
+        }
+
+        int touched = 0;      // cells [0, touched) may have been mutated
+        int touchedNames = 0; // names [0, touchedNames) may have been mutated
         _rollback.Clear();
         _logWrites = true;
         try
@@ -140,11 +160,19 @@ public sealed partial class Workbook
                 touched = i + 1;
                 SetEntry(edits[i].Address, olds[i], news[i]);
             }
-            return _graph.Recalculate(changed, _target, _functions);
+            for (int i = 0; i < m; i++)
+            {
+                touchedNames = i + 1;
+                SetNameEntry(nameEdits[i].Name, newNames[i]);
+            }
+            return changedNames is null
+                ? _graph.Recalculate(changed, _target, _functions)
+                : _graph.Recalculate(changed, changedNames, _target, _functions);
         }
         catch
         {
             for (int i = _rollback.Count - 1; i >= 0; i--) _rollback[i].Entry.Value = _rollback[i].OldValue;
+            for (int i = touchedNames - 1; i >= 0; i--) SetNameEntry(nameEdits[i].Name, oldNames[i]);
             for (int i = touched - 1; i >= 0; i--) SetEntry(edits[i].Address, news[i], olds[i]);
             throw;
         }

@@ -73,7 +73,7 @@ public static class Tokenizer
                 i = end;
                 tokens.Add(new Token(TokenKind.Error, start, s.Substring(start, end - start), Text: code));
             }
-            else if (c == '$' || IsAsciiLetter(c))
+            else if (c == '$' || c == '_' || IsAsciiLetter(c))
             {
                 i++;
                 bool hasDollar = c == '$';
@@ -84,7 +84,13 @@ public static class Tokenizer
                 }
                 string lex = s.Substring(start, i - start);
                 bool isRef = CellReference.TryParse(lex.AsSpan(), out var reference);
-                if (hasDollar)
+                if (c == '_' && !hasDollar)
+                {
+                    // R57 (§5.1, §9.6): a '_'-initial word can only be a name reference; followed by '(' the parser
+                    // rejects it like any name, and one containing '$' falls through to the #PARSE! rule below.
+                    tokens.Add(new Token(TokenKind.Name, start, lex, Text: lex));
+                }
+                else if (hasDollar)
                 {
                     if (!isRef) return TokenizeResult.Fail($"Invalid cell reference '{lex}'.", start);
                     tokens.Add(new Token(TokenKind.CellRef, start, lex, Reference: reference));
