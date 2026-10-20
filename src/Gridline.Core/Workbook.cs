@@ -145,6 +145,10 @@ public sealed partial class Workbook
     public CellValue GetValue(string address) =>
         _cells.TryGetValue(CellKey.Pack(ParseAddress(address, nameof(address))), out var e) ? e.Value : CellValue.Blank;
 
+    /// <summary>The number of non-empty cells, O(1) (the count <see cref="GetUsedAddresses"/> would return, without the
+    /// sort). Internal: not part of the §9.1 surface; the App uses it to choose a selection-scan strategy.</summary>
+    internal int UsedCellCount => _cells.Count;
+
     /// <summary>Canonical addresses of every non-empty cell, row-major (row, then column).</summary>
     public IReadOnlyList<string> GetUsedAddresses()
     {

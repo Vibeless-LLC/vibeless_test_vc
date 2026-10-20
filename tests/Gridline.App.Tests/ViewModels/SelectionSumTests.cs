@@ -90,6 +90,31 @@ public class SelectionSumTests
     }
 
     [Fact]
+    public void LargeSelectionThatProbes_DoesNotFetchTheSortedUsedCells()
+    {
+        // Final review: the strategy is chosen from the O(1) used-cell count, so a probed 5,000-cell selection on a
+        // 100,000-cell sheet never builds GetUsedAddresses' 100,000 sorted address strings (several MB).
+        var cells = new List<KeyValuePair<string, string>>(100_000);
+        for (int row = 1; row <= 10_000; row++)
+            for (int column = 1; column <= 10; column++)
+                cells.Add(new(new CellAddress(column, row).ToString(), "1"));
+        var wb = Workbook.FromCells(cells);
+        var selection = CellRange.Parse("A1:E1000"); // 5,000 cells, all used: probed
+        Assert.True(selection.CellCount > SelectionSummary.ProbeLimit);
+        Assert.True(SelectionSummary.ProbesSelection(selection.CellCount, 100_000));
+        SelectionSummary.UsedCellsIn(wb, selection); // warm up
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var used = SelectionSummary.UsedCellsIn(wb, selection);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(5000, used.Count);
+        Assert.Equal("A1", used[0]);
+        Assert.Equal("E1000", used[^1]);
+        long fetchCost = 100_000L * 24; // at least one string object per used cell if the sorted list were built
+        Assert.True(allocated < fetchCost / 4, $"allocated {allocated} bytes");
+        Assert.Equal(100_000, wb.GetUsedAddresses().Count);
+    }
+
+    [Fact]
     public void WholeSheetSelection_VisitsOnlyUsedCells()
     {
         var wb = Workbook.FromCells([new("A1", "1"), new("ZZ100000", "2"), new("M500", "3")]);

@@ -7,8 +7,9 @@ namespace Gridline.App.ViewModels;
 /// <summary>The status-bar SelectionSum (§11.7, ruling R43): the sum of the Number values in the selection.</summary>
 public static class SelectionSummary
 {
-    /// <summary>Selections with at most this many cells are always probed, without asking the workbook for its used
-    /// cells (GetUsedAddresses sorts every used cell, which would cost milliseconds per arrow key on a 100k-cell sheet).</summary>
+    /// <summary>Selections with at most this many cells are always probed. Larger ones compare their area with the
+    /// workbook's O(1) used-cell count first; only when filtering the used cells is cheaper are they fetched
+    /// (GetUsedAddresses sorts every used cell, which would cost milliseconds per arrow key on a 100k-cell sheet).</summary>
     internal const long ProbeLimit = 4096;
 
     /// <summary>R43 text: the sum printed with ToString("R", InvariantCulture), "0" when there are no numbers, -0 as 0.</summary>
@@ -37,9 +38,10 @@ public static class SelectionSummary
     {
         ArgumentNullException.ThrowIfNull(workbook);
         long area = selection.CellCount;
-        IReadOnlyList<string>? used = area <= ProbeLimit ? null : workbook.GetUsedAddresses();
         var result = new List<string>();
-        if (ProbesSelection(area, used?.Count ?? 0))
+        // The strategy is chosen from the O(1) used-cell count before anything is fetched, so probing never pays for
+        // GetUsedAddresses' full sort (final review).
+        if (area <= ProbeLimit || ProbesSelection(area, workbook.UsedCellCount))
         {
             for (int row = selection.TopLeft.Row; row <= selection.BottomRight.Row; row++)
                 for (int column = selection.TopLeft.Column; column <= selection.BottomRight.Column; column++)
@@ -49,7 +51,7 @@ public static class SelectionSummary
                 }
             return result;
         }
-        foreach (string address in used!) // row-major (§9.1)
+        foreach (string address in workbook.GetUsedAddresses()) // row-major (§9.1)
         {
             if (selection.Contains(CellAddress.Parse(address))) result.Add(address);
         }
