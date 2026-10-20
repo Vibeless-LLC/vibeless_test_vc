@@ -10,7 +10,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        var viewModel = new MainViewModel(new WpfDialogService());
+        var viewModel = new MainViewModel(new WpfDialogService(), new WpfClipboardService());
         if (e.Args.Length > 0) viewModel.OpenAtStartup(e.Args[0]); // on failure an error was shown and it stays Untitled
         var window = new MainWindow(viewModel);
         MainWindow = window;

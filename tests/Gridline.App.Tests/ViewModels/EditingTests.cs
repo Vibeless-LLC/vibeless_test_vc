@@ -269,13 +269,16 @@ public class EditingTests
     }
 
     [Fact]
-    public void New_WhileEditing_ClosesTheEdit()
+    public void New_WhileEditing_CommitsThenPrompts_DontSaveClosesTheEdit()
     {
-        var vm = NewViewModel();
+        var dialogs = new FakeDialogService { DefaultPromptAnswer = Gridline.App.Services.UnsavedChangesChoice.DontSave };
+        var vm = NewViewModel(dialogs);
         vm.BeginEdit("x");
-        vm.NewCommand.Execute(null);
+        vm.NewCommand.Execute(null); // the typed text is a change (D-39), so the prompt is shown
+        Assert.Equal(["Untitled"], dialogs.Prompts);
         Assert.False(vm.IsEditing);
         Assert.Equal("", vm.FormulaBarText);
+        Assert.Empty(vm.Workbook.GetUsedAddresses());
     }
 
     // ---- formula bar ----
@@ -333,7 +336,7 @@ public class EditingTests
     public void Commit_OverMaxInputLength_ShowsErrorAndKeepsEditing()
     {
         var dialogs = new FakeDialogService();
-        var vm = new MainViewModel(dialogs);
+        var vm = NewViewModel(dialogs);
         vm.FormulaBarText = new string('x', Workbook.MaxInputLength + 1); // the boxes cap input; this is the safety net
         Assert.False(vm.CommitPendingEdit());
         Assert.True(vm.IsEditing);

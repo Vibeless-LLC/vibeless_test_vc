@@ -2,7 +2,7 @@ using static Gridline.App.Tests.TestSupport;
 
 namespace Gridline.App.Tests.ViewModels;
 
-/// <summary>§11.5 commands: Undo/Redo follow CanUndo/CanRedo now; file and clipboard commands are Task 8 stubs.</summary>
+/// <summary>§11.5 commands: Undo/Redo follow CanUndo/CanRedo; file commands are always available; Copy/Paste while no edit is open.</summary>
 public class CommandTests
 {
     [Fact]
@@ -31,15 +31,27 @@ public class CommandTests
     }
 
     [Fact]
-    public void Task8Commands_AreDisabledStubs()
+    public void FileAndClipboardCommands_AreEnabled_CopyPasteOnlyWithoutAnOpenEdit()
     {
         var vm = NewViewModel();
-        Assert.False(vm.OpenCommand.CanExecute(null));
-        Assert.False(vm.SaveCommand.CanExecute(null));
-        Assert.False(vm.SaveAsCommand.CanExecute(null));
-        Assert.False(vm.CopyCommand.CanExecute(null));
-        Assert.False(vm.PasteCommand.CanExecute(null));
         Assert.True(vm.NewCommand.CanExecute(null));
+        Assert.True(vm.OpenCommand.CanExecute(null));
+        Assert.True(vm.SaveCommand.CanExecute(null));
+        Assert.True(vm.SaveAsCommand.CanExecute(null));
         Assert.True(vm.ExitCommand.CanExecute(null));
+        Assert.True(vm.CopyCommand.CanExecute(null));
+        Assert.True(vm.PasteCommand.CanExecute(null));
+
+        int copyEvents = 0, pasteEvents = 0;
+        vm.CopyCommand.CanExecuteChanged += (_, _) => copyEvents++;
+        vm.PasteCommand.CanExecuteChanged += (_, _) => pasteEvents++;
+        vm.BeginEdit("x");
+        Assert.False(vm.CopyCommand.CanExecute(null)); // the edit box handles Ctrl+C/Ctrl+V itself
+        Assert.False(vm.PasteCommand.CanExecute(null));
+        vm.CancelEdit();
+        Assert.True(vm.CopyCommand.CanExecute(null));
+        Assert.True(vm.PasteCommand.CanExecute(null));
+        Assert.Equal(2, copyEvents);
+        Assert.Equal(2, pasteEvents);
     }
 }

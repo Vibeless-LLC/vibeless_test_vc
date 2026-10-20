@@ -43,7 +43,7 @@ public class TitleTests
             string path = Path.Combine(dir, "budget.gridline");
             GridlineFile.SaveToPath(Workbook.FromCells([new("B2", "7")]), path);
             var dialogs = new FakeDialogService();
-            var vm = new MainViewModel(dialogs);
+            var vm = NewViewModel(dialogs);
 
             Assert.True(vm.OpenAtStartup(path));
             Assert.Empty(dialogs.Errors);
@@ -74,7 +74,7 @@ public class TitleTests
             if (kind == "corrupt") File.WriteAllText(path, "{ not json");
             if (kind == "directory") Directory.CreateDirectory(path);
             var dialogs = new FakeDialogService();
-            var vm = new MainViewModel(dialogs);
+            var vm = NewViewModel(dialogs);
 
             Assert.False(vm.OpenAtStartup(path));
             var error = Assert.Single(dialogs.Errors);
@@ -89,7 +89,7 @@ public class TitleTests
     [Fact]
     public void New_ReplacesWorkbookAndResetsSelection()
     {
-        var vm = NewViewModel();
+        var vm = NewViewModel(new FakeDialogService { DefaultPromptAnswer = Gridline.App.Services.UnsavedChangesChoice.DontSave });
         vm.Workbook.SetCell("C3", "1");
         vm.SelectCell(Core.Addressing.CellAddress.Parse("C3"), extend: false);
         int contentChanges = 0;

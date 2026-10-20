@@ -1,39 +1,39 @@
 using System.IO;
 using Gridline.App.Services;
 using Gridline.Core;
-using Gridline.IO;
 
 namespace Gridline.App.ViewModels;
 
 /// <summary>
-/// The main window's ViewModel (§11): owns the <see cref="Core.Workbook"/>, the file path, the title, the menu commands
-/// and (in MainViewModel.Selection.cs) the active cell and selection that the grid, name box, formula bar and status bar
-/// show. Built-in WPF binding only.
+/// The main window's ViewModel (§11): owns the <see cref="Core.Workbook"/>, the file path, the title and the menu
+/// commands. Partials: Selection (active cell and selection), Editing (§11.4), Files (§11.5 file commands and the
+/// unsaved-changes prompt) and Clipboard (§11.6). Built-in WPF binding only.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IDialogService _dialogs;
+    private readonly IClipboardService _clipboard;
     private Workbook _workbook;
     private string? _filePath;
 
-    public MainViewModel(IDialogService dialogs)
+    public MainViewModel(IDialogService dialogs, IClipboardService clipboard)
     {
         ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(clipboard);
         _dialogs = dialogs;
+        _clipboard = clipboard;
         _workbook = new Workbook();
         _workbook.CellsChanged += OnCellsChanged;
 
-        NewCommand = new RelayCommand(New);
-        // Task 8 (§11.5, §8.4, R45): Open, Save and Save As with file dialogs and the unsaved-changes prompt.
-        OpenCommand = new RelayCommand(NotYetAvailable, () => false);
-        SaveCommand = new RelayCommand(NotYetAvailable, () => false);
-        SaveAsCommand = new RelayCommand(NotYetAvailable, () => false);
+        NewCommand = new RelayCommand(() => New());
+        OpenCommand = new RelayCommand(() => Open());
+        SaveCommand = new RelayCommand(() => Save());
+        SaveAsCommand = new RelayCommand(() => SaveAs());
         ExitCommand = new RelayCommand(Exit);
         UndoCommand = new RelayCommand(Undo, CanUndoNow); // R49: the edit box while an edit is open
         RedoCommand = new RelayCommand(Redo, CanRedoNow);
-        // Task 8 (§11.6, §9.4, R46, R47): Copy and Paste through the clipboard.
-        CopyCommand = new RelayCommand(NotYetAvailable, () => false);
-        PasteCommand = new RelayCommand(NotYetAvailable, () => false);
+        CopyCommand = new RelayCommand(() => Copy(), CanUseClipboard);
+        PasteCommand = new RelayCommand(() => Paste(), CanUseClipboard);
 
         OnSelectionMoved();
     }
@@ -44,8 +44,11 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Full path of the file the workbook was loaded from or saved to; null when Untitled.</summary>
     public string? FilePath => _filePath;
 
+    /// <summary>The file name shown in the title and the prompt, or <c>Untitled</c>.</summary>
+    public string DocumentName => _filePath is null ? "Untitled" : Path.GetFileName(_filePath);
+
     /// <summary>§11.1: <c>Gridline - &lt;file name or Untitled&gt;</c>, with <c> *</c> appended when dirty.</summary>
-    public string Title => "Gridline - " + (_filePath is null ? "Untitled" : Path.GetFileName(_filePath)) + (_workbook.IsDirty ? " *" : "");
+    public string Title => "Gridline - " + DocumentName + (_workbook.IsDirty ? " *" : "");
 
     public bool IsDirty => _workbook.IsDirty;
 
@@ -59,28 +62,12 @@ public sealed partial class MainViewModel : ObservableObject
     public RelayCommand CopyCommand { get; }
     public RelayCommand PasteCommand { get; }
 
-    /// <summary>Raised when the window should close (Exit).</summary>
+    /// <summary>Raised when the window should close: Exit was confirmed (the prompt, if any, has already been answered).</summary>
     public event EventHandler? CloseRequested;
 
     /// <summary>R44: loads <paramref name="path"/> at startup. On failure shows an error and stays Untitled.</summary>
     /// <returns>True when the file was loaded.</returns>
-    public bool OpenAtStartup(string path)
-    {
-        Workbook loaded;
-        string fullPath;
-        try
-        {
-            loaded = GridlineFile.LoadFromPath(path);
-            fullPath = Path.GetFullPath(path);
-        }
-        catch (Exception ex) when (ex is GridlineFormatException or GridlineIOException or ArgumentException or NotSupportedException or IOException)
-        {
-            _dialogs.ShowError("Gridline", $"Cannot open '{path}'.{Environment.NewLine}{ex.Message}");
-            return false;
-        }
-        Adopt(loaded, fullPath);
-        return true;
-    }
+    public bool OpenAtStartup(string path) => TryLoad(path);
 
     /// <summary>Makes <paramref name="workbook"/> the shown workbook, with <paramref name="filePath"/> (null = Untitled), and
     /// resets the selection to A1.</summary>
@@ -88,23 +75,17 @@ public sealed partial class MainViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(workbook);
         IsEditing = false; // an open edit belongs to the old workbook
+        ForgetInternalCopy(); // so is the copied range (§11.6, D-39)
         _workbook.CellsChanged -= OnCellsChanged;
         _workbook = workbook;
-        _filePath = filePath;
         _workbook.CellsChanged += OnCellsChanged;
         OnPropertyChanged(nameof(Workbook));
-        OnPropertyChanged(nameof(FilePath));
+        SetFilePath(filePath);
         _anchor = _active = new Core.Addressing.CellAddress(1, 1);
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
         OnSelectionMoved(); // the selection is reset to A1, so the grid scrolls there
     }
-
-    // Task 8 (§11.5): New on a dirty workbook prompts Save / Don't Save / Cancel first (R45).
-    private void New() => Adopt(new Workbook(), null);
-
-    // Task 8 (§11.5): Exit on a dirty workbook prompts first; closing the window counts as Exit.
-    private void Exit() => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     private void Undo()
     {
@@ -120,8 +101,6 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshDocumentState();
     }
 
-    private static void NotYetAvailable() { }
-
     private void OnCellsChanged(object? sender, CellsChangedEventArgs e)
     {
         RefreshDocumentState();
@@ -129,7 +108,9 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshContentDerived(); // repaint only (ContentChanged); the view does not scroll
     }
 
-    /// <summary>Title, dirty flag and Undo/Redo availability.</summary>
+    /// <summary>Title, dirty flag and Undo/Redo availability. Called after every change of the workbook's history
+    /// position or saved mark (edits through CellsChanged, Undo, Redo, Save, Adopt), so the title's <c> *</c> always
+    /// follows <see cref="Workbook.IsDirty"/>.</summary>
     private void RefreshDocumentState()
     {
         OnPropertyChanged(nameof(Title));

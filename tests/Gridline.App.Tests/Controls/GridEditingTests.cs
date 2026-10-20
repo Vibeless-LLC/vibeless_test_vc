@@ -62,6 +62,12 @@ public class GridEditingTests
 
     private static CellAddress A(string s) => CellAddress.Parse(s);
 
+    private static bool Shows(GridControl grid, CellAddress cell)
+    {
+        var v = grid.VisibleRange;
+        return cell.Column >= v.FirstColumn && cell.Column <= v.LastColumn && cell.Row >= v.FirstRow && cell.Row <= v.LastRow;
+    }
+
     [Fact]
     public void TypedCharacter_OpensTheEditorOverTheActiveCell_WithThatCharacter() => RunSta(() =>
     {
@@ -206,5 +212,61 @@ public class GridEditingTests
         h.Type("q");
         var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(h.Grid);
         Assert.Contains(peer.GetChildren(), c => c.GetAutomationId() == "CellEditor");
+    });
+
+    [Fact]
+    public void TypingWhileTheActiveCellIsScrolledOutOfView_ScrollsItIntoView_SoTheEditorIsVisible() => RunSta(() =>
+    {
+        using var h = new Host();
+        h.Vm.SelectCell(A("C5"), extend: false);
+        h.Grid.SetVerticalOffset(5000);
+        h.Grid.SetHorizontalOffset(300);
+        h.Scroller.UpdateLayout();
+        Assert.False(Shows(h.Grid, A("C5")));
+
+        Assert.True(h.Type("z"));
+
+        Assert.True(h.Vm.IsEditing);
+        Assert.True(Shows(h.Grid, A("C5")));
+        Assert.Equal(22 - 2, h.Grid.Editor.Clip.Bounds.Height); // drawn, not clipped away
+        Assert.Equal(80 - 2, h.Grid.Editor.Clip.Bounds.Width);
+    });
+
+    [Fact]
+    public void FormulaBarTypingWhileTheActiveCellIsOutOfView_AlsoScrollsItIntoView() => RunSta(() =>
+    {
+        using var h = new Host();
+        h.Grid.SetVerticalOffset(5000);
+        h.Scroller.UpdateLayout();
+        h.Vm.FormulaBarText = "x";
+        h.Scroller.UpdateLayout();
+        Assert.True(Shows(h.Grid, A("A1")));
+    });
+
+    [Fact]
+    public void R49_EditorHistory_StartsAtTheEditsStartText_WhicheverBoxOpenedIt() => RunSta(() =>
+    {
+        using var h = new Host();
+        // An earlier edit leaves its text and history in the editor.
+        h.Type("a");
+        h.Grid.Editor.Text = "abc";
+        h.EditorKey(Key.Enter);
+        Assert.Equal("abc", h.Vm.Workbook.GetInput("A1"));
+
+        // An edit opened from the formula bar: the editor shows the start text and cannot undo past it.
+        h.Vm.FormulaBarText = "q";
+        Assert.Equal("q", h.Grid.Editor.Text);
+        Assert.False(h.Grid.Editor.CanUndo);
+        h.Grid.Editor.Text = "qr";
+        Assert.True(h.Grid.Editor.CanUndo);
+        h.Grid.Editor.Undo();
+        Assert.Equal("q", h.Grid.Editor.Text);
+        Assert.False(h.Grid.Editor.CanUndo);
+        h.Vm.CancelEdit();
+
+        // An edit opened from the grid (F2) likewise.
+        Assert.True(h.Key(Key.F2));
+        Assert.Equal("", h.Grid.Editor.Text); // A2 is blank
+        Assert.False(h.Grid.Editor.CanUndo);
     });
 }

@@ -92,11 +92,42 @@ internal sealed class AppUnderTest : IDisposable
         throw new TimeoutException($"Expected '{expected}', last value '{last}' after {limit.TotalSeconds} s.");
     }
 
+    /// <summary>The app's process (for WM_CLOSE through <see cref="Process.CloseMainWindow"/> and exit checks).</summary>
+    public Process Process => Process.GetProcessById(Application.ProcessId);
+
+    /// <summary>The unsaved-changes prompt window (R45) if it is open, else null. It is owned by the main window, so UIA
+    /// may list it as a top-level window or as the main window's child.</summary>
+    public AutomationElement? FindPrompt()
+    {
+        foreach (var w in Application.GetAllTopLevelWindows(Automation))
+        {
+            if (w.Properties.AutomationId.ValueOrDefault == "UnsavedChangesPrompt") return w;
+            if (w.FindFirstChild(cf => cf.ByAutomationId("UnsavedChangesPrompt")) is { } child) return child;
+        }
+        return null;
+    }
+
+    /// <summary>Closes the app: WM_CLOSE to the main window; a dirty workbook's prompt (§11.5) is answered Don't Save;
+    /// anything still running after that is killed.</summary>
     public void Dispose()
     {
         try
         {
-            if (!Application.HasExited) Application.Close(killIfCloseFails: true);
+            if (!Application.HasExited)
+            {
+                using var process = Process;
+                process.CloseMainWindow(); // posted, like the close button
+                if (!process.WaitForExit(2000))
+                {
+                    try
+                    {
+                        if (FindPrompt()?.FindFirstDescendant(cf => cf.ByAutomationId("PromptDontSave"))?.AsButton() is { } dontSave)
+                            dontSave.Invoke();
+                    }
+                    catch (Exception) { /* fall through to the kill */ }
+                    if (!process.WaitForExit(3000)) process.Kill();
+                }
+            }
         }
         catch (Exception)
         {

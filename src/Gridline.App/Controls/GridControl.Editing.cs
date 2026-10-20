@@ -58,26 +58,40 @@ public sealed partial class GridControl
     protected override System.Collections.IEnumerator LogicalChildren => new[] { _editor }.GetEnumerator();
 
     /// <summary>Opens an edit from the grid (typed text, or null for F2) and moves keyboard focus into the editor with the
-    /// caret at the end. The editor's undo history starts empty, so R49 Undo never goes back past the start of the edit.</summary>
+    /// caret at the end. OnEditStateChanged has already scrolled the cell into view and emptied the editor's undo
+    /// history (R49).</summary>
     private void BeginEditFromGrid(IGridEditSource edit, string? replacement)
     {
         edit.BeginEdit(replacement);
         if (!edit.IsEditing) return;
-        SyncEditor();
-        _editor.IsUndoEnabled = false; // clears the history
-        _editor.IsUndoEnabled = true;
+        SyncEditor(); // normally already done by OnEditStateChanged, which also cleared the history
         _editor.UpdateLayout();
         _editor.Focus();
         _editor.CaretIndex = _editor.Text.Length;
     }
 
-    /// <summary>Source changed its edit state or text: show, hide and fill the editor.</summary>
+    /// <summary>Source changed its edit state or text: show, hide and fill the editor; when an edit opens, start its undo
+    /// history and bring the active cell into view.</summary>
     private void OnEditStateChanged(object? sender, EventArgs e)
     {
         bool wasVisible = _editor.Visibility == Visibility.Visible;
         SyncEditor();
+        if (!wasVisible && _editor.Visibility == Visibility.Visible && Source is { } src)
+        {
+            // An edit opened (from the grid or the formula bar). R49: the editor's history starts at the edit's start
+            // text, which SyncEditor has just put there, so Undo never reaches the text of an earlier edit. The active
+            // cell is scrolled into view so the editor is not clipped out of sight.
+            ClearEditorHistory();
+            ScrollIntoView(src.ActiveCell);
+        }
         if (wasVisible && _editor.Visibility != Visibility.Visible && _editor.IsKeyboardFocusWithin)
             Focus(); // the edit was committed or cancelled from the editor: the grid takes the keys again
+    }
+
+    private void ClearEditorHistory()
+    {
+        _editor.IsUndoEnabled = false;
+        _editor.IsUndoEnabled = true;
     }
 
     private void SyncEditor()

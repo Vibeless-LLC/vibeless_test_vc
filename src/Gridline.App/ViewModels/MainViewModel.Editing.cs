@@ -20,6 +20,7 @@ public sealed partial class MainViewModel : IGridEditSource
         {
             if (!SetProperty(ref _isEditing, value)) return;
             RaiseUndoRedoCanExecuteChanged();
+            RaiseClipboardCanExecuteChanged(); // Copy and Paste act on the selection only without an open edit
             EditStateChanged?.Invoke(this, EventArgs.Empty);
         }
     }
