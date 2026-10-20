@@ -120,9 +120,12 @@ public class RoundTripPropertyTests
             }
             var expectedNames = order.Select(n => new KeyValuePair<string, string>(n, distinct[n]));
             if (!expectedNames.SequenceEqual(back.GetNames())) return false;
+            // Without #REF! names the live workbook is equivalent, so every loaded value must match it.
+            bool anyDeleted = order.Any(n => distinct[n] == "#REF!");
             foreach (var a in plain.GetUsedAddresses())
             {
                 if (!string.Equals(plain.GetInput(a), back.GetInput(a), StringComparison.Ordinal)) return false;
+                if (!anyDeleted && !live.GetValue(a).Equals(back.GetValue(a))) return false;
             }
 
             // A workbook built through DefineName (public path, no #REF!) round-trips too.
