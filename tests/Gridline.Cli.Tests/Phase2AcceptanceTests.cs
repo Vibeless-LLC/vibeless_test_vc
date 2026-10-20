@@ -46,7 +46,7 @@ public sealed class Phase2AcceptanceTests : IDisposable
     private static (int code, string stdout, string stderr, byte[] stdoutBytes) Gridline(byte[]? stdin, params string[] args) =>
         GridlineIn(Path.GetTempPath(), stdin, args); // never depend on the current directory
 
-    private static (int code, string stdout, string stderr, byte[] stdoutBytes) GridlineIn(string workingDirectory, byte[]? stdin, params string[] args)
+    internal static (int code, string stdout, string stderr, byte[] stdoutBytes) GridlineIn(string workingDirectory, byte[]? stdin, params string[] args)
     {
         var psi = new ProcessStartInfo("dotnet")
         {

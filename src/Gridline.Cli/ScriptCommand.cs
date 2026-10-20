@@ -39,6 +39,13 @@ public static class ScriptCommand
                     "cannot write output: " + ex.Message);
             }
         }
+        interpreter.Finish();
+        try { ctx.FlushStdout(); }
+        catch (Exception ex) when (ex is not CliException)
+        {
+            throw new CliException(errDelivered ? ExitCodes.ScriptError : ExitCodes.Usage,
+                "cannot write output: " + ex.Message);
+        }
         return interpreter.AnyError ? ExitCodes.ScriptError : ExitCodes.Success;
     }
 
