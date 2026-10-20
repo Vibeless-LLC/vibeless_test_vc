@@ -47,7 +47,6 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         catch (GridlineIOException ex) { Fail(ex.Message); }
         catch (GridlineFormatException ex) { Fail(ex.Message); }
         catch (ArgumentException ex) { Fail(ex.Message); }
-        catch (InvalidOperationException ex) { Fail(ex.Message); }
     }
 
     private bool Dispatch(string word, string rest)
@@ -70,10 +69,10 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                     _wb.CopyPaste(parts[0], parts[1]);
                 }
                 return true;
-            case "INSERTROWS": { var (r, n) = RowArgs(word, rest); _wb.InsertRows(r, n); } return true;
-            case "DELETEROWS": { var (r, n) = RowArgs(word, rest); _wb.DeleteRows(r, n); } return true;
-            case "INSERTCOLS": { var (c, n) = ColumnArgs(word, rest); _wb.InsertColumns(c, n); } return true;
-            case "DELETECOLS": { var (c, n) = ColumnArgs(word, rest); _wb.DeleteColumns(c, n); } return true;
+            case "INSERTROWS": { var (r, n) = RowArgs(word, rest); Structure(() => _wb.InsertRows(r, n)); } return true;
+            case "DELETEROWS": { var (r, n) = RowArgs(word, rest); Structure(() => _wb.DeleteRows(r, n)); } return true;
+            case "INSERTCOLS": { var (c, n) = ColumnArgs(word, rest); Structure(() => _wb.InsertColumns(c, n)); } return true;
+            case "DELETECOLS": { var (c, n) = ColumnArgs(word, rest); Structure(() => _wb.DeleteColumns(c, n)); } return true;
             case "NAME":
                 {
                     string[] parts = rest.Split(' ');
@@ -179,6 +178,14 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         if (rest.Length == 0) throw new CliException(ExitCodes.Usage, "missing cell address");
         if (rest.Contains(' ')) throw new CliException(ExitCodes.Usage, "too many arguments");
         return CellArgs.Canonical(rest);
+    }
+
+    // Only the structure edits turn InvalidOperationException (a cell would leave the grid) into a user-facing ERR;
+    // anywhere else it is an internal failure and must keep escaping as "internal error" (exit 1).
+    private static void Structure(Action edit)
+    {
+        try { edit(); }
+        catch (InvalidOperationException ex) { throw new CliException(ExitCodes.Usage, ex.Message); }
     }
 
     // R73: <row>/<n> are ASCII decimal digits only (no sign, no spaces), and must fit an int.

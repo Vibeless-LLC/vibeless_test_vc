@@ -256,6 +256,14 @@ public sealed class CsvAndStructureCommandTests : IDisposable
     }
 
     [Fact]
+    public void LeadingZeros_AreAccepted()
+    {
+        var (code, o) = Script("SET A1 1\nINSERTROWS 01 001\nDUMP\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A2\tN:1\n", o);
+    }
+
+    [Fact]
     public void ZZ_IsAccepted()
     {
         var (code, o) = Script("DELETECOLS zz 1\nDELETECOLS ZZ 1\nINSERTCOLS ZZ 1\n");
