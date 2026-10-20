@@ -51,8 +51,10 @@ public sealed partial class Workbook
         public CellValue Value = value;
     }
 
-    private readonly Dictionary<int, Entry> _cells = []; // key: CellKey.Pack
-    private readonly DependencyGraph _graph = new();
+    // Not readonly: a structure edit (§9.5) builds the moved cell store and its graph aside and swaps them in, so a
+    // failure restores the previous objects (Workbook.Structure.cs).
+    private Dictionary<int, Entry> _cells = []; // key: CellKey.Pack
+    private DependencyGraph _graph = new();
     private readonly IFunctionResolver _functions;
     private readonly RecalcTarget _target;
     private readonly NameCasing _nameCasing; // §5.5: rewritten formulas print names in their definition casing

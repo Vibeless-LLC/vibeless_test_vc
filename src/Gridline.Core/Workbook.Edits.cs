@@ -5,7 +5,8 @@ using Gridline.Core.Dependencies;
 
 namespace Gridline.Core;
 
-// The mutation path shared by SetCell, ApplyBatch, CopyPaste, DefineName, DeleteName, Undo and Redo (§9.2, §9.3); the undo stack itself
+// The mutation path shared by SetCell, ApplyBatch, CopyPaste, DefineName, DeleteName, Undo and Redo (§9.2, §9.3; structure
+// steps take their own path in Workbook.Structure.cs); the undo stack itself
 // lives in Gridline.Core.Commands (UndoHistory, UndoStep).
 public sealed partial class Workbook
 {
@@ -66,6 +67,13 @@ public sealed partial class Workbook
     {
         var step = _history.PeekUndo();
         if (step is null) return false;
+        if (step.Structure is not null)
+        {
+            var (structureResult, changed) = ApplyStructure(step, forward: false);
+            _history.CompleteUndo();
+            FinishStructure(structureResult, changed);
+            return true;
+        }
         var result = Apply(step, forward: false);
         _history.CompleteUndo();
         Finish(step.CellEdits, result);
@@ -77,6 +85,13 @@ public sealed partial class Workbook
     {
         var step = _history.PeekRedo();
         if (step is null) return false;
+        if (step.Structure is not null)
+        {
+            var (structureResult, changed) = ApplyStructure(step, forward: true);
+            _history.CompleteRedo();
+            FinishStructure(structureResult, changed);
+            return true;
+        }
         var result = Apply(step, forward: true);
         _history.CompleteRedo();
         Finish(step.CellEdits, result);

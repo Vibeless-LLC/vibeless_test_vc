@@ -11,8 +11,9 @@ namespace Gridline.Core.Commands;
 /// SetCell, ApplyBatch and CopyPaste steps are pure cell-input edit sets: each touched cell appears once with its prior
 /// and new input (enforced by the constructor). DefineName and DeleteName steps (§9.6) carry one <see cref="NameEdit"/>
 /// and no cell edits; the names payload is a list so a later structure edit (§9.5), which may adjust several name
-/// targets at once, records them in the same shape. The history (<see cref="UndoHistory"/>) treats steps as opaque, so
-/// it needs no change. See DECISIONS.md D-34 and D-41.
+/// targets at once, records them in the same shape. Insert/delete rows/columns steps (§9.5) carry a
+/// <see cref="StructureEdit"/> whole-sheet restructure payload, the names it adjusted, and no cell edits. The history
+/// (<see cref="UndoHistory"/>) treats steps as opaque, so it needs no change. See DECISIONS.md D-34, D-41 and D-43.
 /// </remarks>
 public sealed class UndoStep
 {
@@ -54,9 +55,35 @@ public sealed class UndoStep
         NameEdits = nameEdits;
     }
 
+    /// <param name="structure">The insert/delete payload (§9.5).</param>
+    /// <param name="nameEdits">Each name whose refersTo the edit adjusted, once, with prior and new definition.</param>
+    /// <exception cref="ArgumentException">A name appears more than once (as above), or an address appears more than
+    /// once among the structure payload's rewrites or among its removed cells.</exception>
+    public UndoStep(StructureEdit structure, ImmutableArray<NameEdit> nameEdits) : this([], nameEdits)
+    {
+        ArgumentNullException.ThrowIfNull(structure);
+        if (structure.Rewrites.IsDefault) throw new ArgumentNullException(nameof(structure), "Rewrites is default.");
+        if (structure.Removed.IsDefault) throw new ArgumentNullException(nameof(structure), "Removed is default.");
+        RequireDistinct(structure.Rewrites, nameof(structure));
+        RequireDistinct(structure.Removed, nameof(structure));
+        Structure = structure;
+    }
+
+    private static void RequireDistinct(ImmutableArray<CellEdit> edits, string paramName)
+    {
+        var seen = new HashSet<CellAddress>(edits.Length);
+        foreach (var edit in edits)
+            if (!seen.Add(edit.Address))
+                throw new ArgumentException($"Cell {edit.Address} appears more than once in one undo step.", paramName);
+    }
+
     /// <summary>The cell inputs this step changed, each address once.</summary>
     public ImmutableArray<CellEdit> CellEdits { get; }
 
     /// <summary>The names this step defined, redefined or deleted, each name once; empty for cell-only steps.</summary>
     public ImmutableArray<NameEdit> NameEdits { get; }
+
+    /// <summary>The insert/delete rows/columns payload (§9.5); null for every other step. When set,
+    /// <see cref="CellEdits"/> is empty.</summary>
+    public StructureEdit? Structure { get; }
 }

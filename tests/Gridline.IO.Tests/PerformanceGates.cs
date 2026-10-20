@@ -36,7 +36,7 @@ public class PerformanceGates(ITestOutputHelper output)
 
     /// <summary>R32 P-1/P-5 fixture: 100,000 cells in a 100,000-row layout; rows 1..50,000 are numeric
     /// constants in column A, rows 50,001..100,000 are simple formulas "=A{r-50000}*2".</summary>
-    private static List<KeyValuePair<string, string>> HalfConstantsHalfFormulas()
+    internal static List<KeyValuePair<string, string>> HalfConstantsHalfFormulas()
     {
         var cells = new List<KeyValuePair<string, string>>(100_000);
         for (int r = 1; r <= 50_000; r++)
