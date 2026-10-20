@@ -4,9 +4,10 @@ namespace Gridline.Core.Dependencies;
 
 /// <summary>
 /// One side of a resized-rectangle dependency (R68): a literal reference from the formula text, or an upper-cased name
-/// (R20) whose target is looked up when the rectangle is computed.
+/// (R20) whose target is looked up when the rectangle is computed. <see cref="Sheet"/> is a literal's upper-cased sheet
+/// (CR1.2), null when unqualified or for a name.
 /// </summary>
-internal readonly record struct ReferenceSpec(CellRange? Literal, string? Name);
+internal readonly record struct ReferenceSpec(CellRange? Literal, string? Name, string? Sheet = null);
 
 /// <summary>
 /// The static dependency of a conditional aggregation call such as <c>SUMIF(range, criteria, sum_range)</c> on the rectangle
