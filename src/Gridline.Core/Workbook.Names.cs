@@ -94,6 +94,27 @@ public sealed partial class Workbook
         _graph.SetNameTarget(name, to is { Target.Kind: not NameTargetKind.Invalid } live ? live.Target.Range : null);
     }
 
+    /// <summary>Validates the names of a loaded file with the DefineName rules (§9.6): syntax, refersTo (normalised to
+    /// the canonical form, R58, so <c>$b$1</c> loads as <c>$B$1</c>), the exact string <c>#REF!</c> (R59), and no
+    /// case-insensitive duplicates. Builds nothing.</summary>
+    /// <exception cref="ArgumentException">Any name or refersTo is invalid, or two names collide.</exception>
+    private static List<NameDefinition> ValidateLoadedNames(IEnumerable<KeyValuePair<string, string>> names)
+    {
+        var result = new List<NameDefinition>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, refersTo) in names)
+        {
+            if (name is null || !NameSyntax.IsValidName(name))
+                throw new ArgumentException($"Invalid name '{Clip(name ?? "")}'.", nameof(names));
+            if (refersTo is null || !NameSyntax.TryParseRefersTo(refersTo, allowDeleted: true, out string canonical, out _))
+                throw new ArgumentException($"Invalid refersTo '{Clip(refersTo ?? "")}' for name '{Clip(name)}'.", nameof(names));
+            if (!seen.Add(name))
+                throw new ArgumentException($"Duplicate name '{Clip(name)}'.", nameof(names));
+            result.Add(new NameDefinition(name, canonical));
+        }
+        return result;
+    }
+
     private static string Clip(string s) => s.Length <= 64 ? s : string.Concat(s.AsSpan(0, 64), "...");
 
     /// <summary>§5.5: names print in their definition casing, or as written when undefined.</summary>

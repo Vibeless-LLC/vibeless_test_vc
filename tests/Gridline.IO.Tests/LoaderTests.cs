@@ -144,7 +144,6 @@ public class LoaderTests
     public void NamesAndCellsMissing_CountAsEmpty() =>
         Assert.Empty(Load("{\"format\":\"gridline\",\"version\":1}").GetUsedAddresses());
     [Fact] public void Fail_NamesNotObject() => Bad(Doc(names: "[]"));
-    [Fact] public void Fail_NamesNonEmpty_Phase1() => Bad(Doc(names: "{\"X\":\"A1\"}"));
     [Fact] public void Fail_CellsNotArray() => Bad(Doc(cells: "{}"));
     [Fact] public void Fail_CellsNull() => Bad(Doc(cells: "null"));
     [Fact] public void Fail_EntryNotArray() => Bad(Doc("[\"A1\"]"));

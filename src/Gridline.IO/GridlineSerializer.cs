@@ -8,10 +8,13 @@ namespace Gridline.IO;
 /// </summary>
 public static class GridlineSerializer
 {
-    private static readonly IReadOnlyList<KeyValuePair<string, string>> NoNames = [];
-
-    /// <summary>The canonical bytes of <paramref name="workbook"/> (§8.1). Phase 1 always writes <c>"names": {}</c>.</summary>
-    public static byte[] Serialize(Workbook workbook) => CanonicalWriter.Write(workbook, NoNames);
+    /// <summary>The canonical bytes of <paramref name="workbook"/> (§8.1). Names are the workbook's <see cref="Workbook.GetNames"/>, sorted OrdinalIgnoreCase, including
+    /// <c>#REF!</c> targets (R59).</summary>
+    public static byte[] Serialize(Workbook workbook)
+    {
+        ArgumentNullException.ThrowIfNull(workbook);
+        return CanonicalWriter.Write(workbook, workbook.GetNames());
+    }
 
     /// <summary>Writes the canonical bytes of <paramref name="workbook"/> to <paramref name="destination"/> (§8.1).</summary>
     public static void Serialize(Workbook workbook, Stream destination)
@@ -19,10 +22,6 @@ public static class GridlineSerializer
         ArgumentNullException.ThrowIfNull(destination);
         destination.Write(Serialize(workbook));
     }
-
-    /// <summary>Names overload used from Phase 4: <paramref name="names"/> are written sorted OrdinalIgnoreCase (§8.1).</summary>
-    internal static byte[] Serialize(Workbook workbook, IReadOnlyList<KeyValuePair<string, string>> names) =>
-        CanonicalWriter.Write(workbook, names);
 
     /// <summary>Loads a workbook from .gridline bytes (§8.2, R27).</summary>
     /// <exception cref="GridlineFormatException">The content is invalid in any §8.2 way; nothing is loaded.</exception>

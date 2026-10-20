@@ -129,25 +129,39 @@ public class WriterTests
     [Fact]
     public void NonEmptyNames_SortedOrdinalIgnoreCase_ExactLayout()
     {
-        var names = new List<KeyValuePair<string, string>>
-        {
-            new("zeta", "=A1"), new("Alpha", "B2"), new("beta", "say \"hi\""),
-        };
         var wb = Make(("A1", "1"));
+        wb.DefineName("zeta", "$A$1");
+        wb.DefineName("Alpha", "$b$2");
+        wb.DefineName("beta", "$C$1:$A$3");
         var expected = Lines(
             "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",
-            "    \"Alpha\": \"B2\",", "    \"beta\": \"say \\\"hi\\\"\",", "    \"zeta\": \"=A1\"", "  },",
+            "    \"Alpha\": \"$B$2\",", "    \"beta\": \"$A$1:$C$3\",", "    \"zeta\": \"$A$1\"", "  },",
             "  \"cells\": [", "    [\"A1\", \"1\"]", "  ]", "}");
-        Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb, names)));
+        Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb)));
+    }
+
+    [Fact]
+    public void Names_MixedCasing_SortIgnoresCase_DefinitionCasingKept()
+    {
+        var wb = new Workbook();
+        var defined = new[] { "b", "A", "_c", "B2x", "a_2", "Zed" };
+        foreach (var n in defined) wb.DefineName(n, "$A$1");
+        var text = Text(GridlineSerializer.Serialize(wb));
+        var order = text.Split('\n').Where(l => l.StartsWith("    \"")).Select(l => l.Trim().Split('"')[1]).ToArray();
+        Assert.Equal(defined.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray(), order);
     }
 
     [Fact]
     public void NonEmptyNames_WithEmptyCells()
     {
-        var names = new List<KeyValuePair<string, string>> { new("X", "A1") };
+        var wb = new Workbook();
+        wb.DefineName("X", "$A$1");
         var expected = Lines(
             "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",
-            "    \"X\": \"A1\"", "  },", "  \"cells\": []", "}");
-        Assert.Equal(expected, Text(GridlineSerializer.Serialize(new Workbook(), names)));
+            "    \"X\": \"$A$1\"", "  },", "  \"cells\": []", "}");
+        Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb)));
     }
+
+    [Fact]
+    public void Serialize_Null_Throws() => Assert.Throws<ArgumentNullException>(() => GridlineSerializer.Serialize(null!));
 }

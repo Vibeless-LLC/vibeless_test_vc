@@ -91,9 +91,18 @@ public sealed partial class Workbook
     public static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells) =>
         FromCells(cells, BuiltInFunctionTable.Default);
 
-    internal static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells, IFunctionResolver functions)
+    internal static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells, IFunctionResolver functions) =>
+        FromCells(cells, [], functions);
+
+    /// <summary>Loader entry (ruling P1): as the public FromCells, plus the names of a file (§8.2). Everything is
+    /// validated before anything is built (atomic); see <see cref="ValidateLoadedNames"/>.</summary>
+    internal static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells,
+        IEnumerable<KeyValuePair<string, string>> names, IFunctionResolver? functions = null)
     {
         ArgumentNullException.ThrowIfNull(cells);
+        ArgumentNullException.ThrowIfNull(names);
+        functions ??= BuiltInFunctionTable.Default;
+        var loadedNames = ValidateLoadedNames(names);
         var validated = new List<(int Key, string Input)>();
         var seen = new HashSet<int>();
         foreach (var (address, input) in cells)
@@ -106,6 +115,7 @@ public sealed partial class Workbook
         }
 
         var wb = new Workbook(functions);
+        foreach (var definition in loadedNames) wb.SetNameEntry(definition.Name, CreateNameEntry(definition));
         foreach (var (key, input) in validated)
         {
             var entry = CreateEntry(input, CellValue.Blank);
