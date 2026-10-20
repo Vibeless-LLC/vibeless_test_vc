@@ -49,8 +49,10 @@ internal static class GridRenderer
                     realized++;
                     if (d.Text.Length == 0) continue;
                     var cell = new Rect(GridMetrics.ColumnLeft(column, v.FirstColumn), top, GridMetrics.ColumnWidth, GridMetrics.RowHeight);
-                    // A number that does not fit is shown as # fill rather than a trimmed, misleading value.
-                    DrawText(dc, d.Text, cell, ToTextAlignment(d.Alignment), TextBrush, pixelsPerDip, hashIfTooWide: d.Alignment == CellAlignment.Right);
+                    if (d.Alignment == CellAlignment.Right)
+                        DrawNumber(dc, d.Text, cell, pixelsPerDip); // §11.3: always the full G10 string
+                    else
+                        DrawText(dc, d.Text, cell, ToTextAlignment(d.Alignment), TextBrush, pixelsPerDip);
                 }
             }
         }
@@ -68,13 +70,22 @@ internal static class GridRenderer
         _ => TextAlignment.Left,
     };
 
-    private static void DrawText(DrawingContext dc, string text, Rect cell, TextAlignment alignment, Brush brush, double pixelsPerDip,
-        bool hashIfTooWide = false)
+    /// <summary>Draws the complete G10 string right-aligned inside the cell, clipped to the cell rectangle (§11.3): a number
+    /// wider than the column loses its leading characters at the left edge, never its text.</summary>
+    private static void DrawNumber(DrawingContext dc, string text, Rect cell, double pixelsPerDip)
+    {
+        var ft = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, FontSize, TextBrush, pixelsPerDip);
+        double x = cell.Right - GridMetrics.TextPadding - ft.WidthIncludingTrailingWhitespace;
+        double y = cell.Top + Math.Max(0, (cell.Height - ft.Height) / 2);
+        dc.PushClip(new RectangleGeometry(cell));
+        dc.DrawText(ft, new Point(x, y));
+        dc.Pop();
+    }
+
+    private static void DrawText(DrawingContext dc, string text, Rect cell, TextAlignment alignment, Brush brush, double pixelsPerDip)
     {
         double width = cell.Width - 2 * GridMetrics.TextPadding;
         if (width <= 0) return;
-        if (hashIfTooWide && Measure(text, brush, pixelsPerDip) > width)
-            text = new string('#', Math.Max(1, (int)(width / Measure("#", brush, pixelsPerDip))));
         var ft = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, FontSize, brush, pixelsPerDip)
         {
             MaxTextWidth = width,
@@ -85,9 +96,6 @@ internal static class GridRenderer
         double y = cell.Top + Math.Max(0, (cell.Height - ft.Height) / 2);
         dc.DrawText(ft, new Point(cell.Left + GridMetrics.TextPadding, y));
     }
-
-    private static double Measure(string text, Brush brush, double pixelsPerDip) =>
-        new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, FontSize, brush, pixelsPerDip).WidthIncludingTrailingWhitespace;
 
     /// <summary>The on-screen rectangle of the part of <paramref name="r"/> that is visible, or null.</summary>
     private static Rect? VisibleRect(VisibleCells v, CellRange r)

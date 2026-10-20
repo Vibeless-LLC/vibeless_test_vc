@@ -64,6 +64,31 @@ public class SelectionSumTests
         Assert.Equal(SelectionSummary.FormatSum(wb, small), SelectionSummary.FormatSum(wb, large));
     }
 
+    [Theory]
+    [InlineData(1, 0, true)]                // small selections are always probed (no used-cell scan per arrow key)
+    [InlineData(4096, 100000, true)]
+    [InlineData(4096, 0, true)]
+    [InlineData(5000, 100000, true)]        // area <= used: probe the selection
+    [InlineData(5000, 4999, false)]         // area > used: filter the used cells
+    [InlineData(70_200_000, 3, false)]      // whole sheet, sparse
+    [InlineData(70_200_000, 100000, false)] // whole sheet, 100k cells
+    public void Strategy_IsTheCheaperOfAreaAndUsedCells(long area, int used, bool probes) =>
+        Assert.Equal(probes, SelectionSummary.ProbesSelection(area, used));
+
+    [Fact]
+    public void LargeSelectionOnADenseSheet_ProbesAndSumsCorrectly()
+    {
+        var cells = new List<KeyValuePair<string, string>>();
+        for (int row = 1; row <= 1000; row++)
+            for (int column = 1; column <= 10; column++)
+                cells.Add(new(new CellAddress(column, row).ToString(), (row * column).ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var wb = Workbook.FromCells(cells); // 10,000 used cells
+        var selection = CellRange.Parse("A1:E1000"); // 5,000 cells: over the probe limit, under the used count
+        Assert.True(SelectionSummary.ProbesSelection(selection.CellCount, 10000));
+        Assert.Equal("7507500", SelectionSummary.FormatSum(wb, selection)); // (1+...+5) * (1+...+1000)
+        Assert.Equal("27527500", Sum(wb, "A1:ZZ1000")); // 702,000 cells > 10,000 used: filtered; 55 * 500500
+    }
+
     [Fact]
     public void WholeSheetSelection_VisitsOnlyUsedCells()
     {

@@ -257,8 +257,8 @@ public class AppRuleSanityTests
 {
     private static readonly System.Reflection.Assembly Self = typeof(AppRuleSanityTests).Assembly;
 
-    private static TestResult AppRuleOn(Type t) =>
-        Types.InAssembly(Self).That().HaveName(t.Name).ShouldNot().HaveDependencyOnAny([.. AppForbidden]).GetResult();
+    // Through the same helper S3_2_App_DoesNotDependOnCli uses, narrowed to one fixture type.
+    private static TestResult AppRuleOn(Type t) => AppMustNotDependOnCli(Self, t.Name);
 
     [Fact]
     public void AppCliRule_FailsOnKnownViolation()
@@ -270,6 +270,10 @@ public class AppRuleSanityTests
 
     [Fact]
     public void AppCliRule_AllowsCoreIoAndWpf() => Assert.True(AppRuleOn(typeof(UsesCoreIoAndWpf)).IsSuccessful);
+
+    // The whole-assembly form (production) also fails here: this test assembly uses Gridline.Cli.
+    [Fact]
+    public void AppCliRule_WholeAssemblyFormFailsOnThisAssembly() => Assert.False(AppMustNotDependOnCli(Self).IsSuccessful);
 
     [Fact]
     public void AppReferenceRule_FlagsACliReference()

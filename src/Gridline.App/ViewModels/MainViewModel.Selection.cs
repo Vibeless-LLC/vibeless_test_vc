@@ -66,10 +66,11 @@ public sealed partial class MainViewModel : IGridDataSource
 
     public void SelectCell(CellAddress cell, bool extend)
     {
-        if (cell == _active && (extend || cell == _anchor)) return;
+        CellAddress anchor = extend ? _anchor : cell;
+        if (cell == _active && anchor == _anchor) return;
         _active = cell;
-        if (!extend) _anchor = cell;
-        RefreshSelectionDerived();
+        _anchor = anchor;
+        OnSelectionMoved();
     }
 
     public CellAddress GetLastUsedCell()
@@ -82,18 +83,26 @@ public sealed partial class MainViewModel : IGridDataSource
         return new CellAddress(maxColumn, maxRow);
     }
 
-    /// <summary>Recomputes everything shown for the active cell and selection and notifies the grid.</summary>
-    private void RefreshSelectionDerived()
+    /// <summary>The active cell or the selection changed (or was reset by Adopt): refresh everything derived from it and
+    /// raise <see cref="SelectionChanged"/>, which makes the grid scroll the active cell into view.</summary>
+    private void OnSelectionMoved()
     {
-        string address = _active.ToString();
-        NameBoxText = address;
-        FormulaBarText = _workbook.GetInput(address);
-        SelectionValue = _workbook.GetValue(address).ToCanonicalString();
-        SelectionSum = SelectionSummary.FormatSum(_workbook, Selection);
+        NameBoxText = _active.ToString();
+        RefreshContentDerived();
         OnPropertyChanged(nameof(ActiveCell));
         OnPropertyChanged(nameof(ActiveAddress));
         OnPropertyChanged(nameof(SelectionAnchor));
         OnPropertyChanged(nameof(Selection));
         SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Values may have changed but the selection did not: refresh the formula bar and status bar only. No
+    /// SelectionChanged, so an edit or Undo never scrolls the grid back to the active cell.</summary>
+    private void RefreshContentDerived()
+    {
+        string address = _active.ToString();
+        FormulaBarText = _workbook.GetInput(address);
+        SelectionValue = _workbook.GetValue(address).ToCanonicalString();
+        SelectionSum = SelectionSummary.FormatSum(_workbook, Selection);
     }
 }

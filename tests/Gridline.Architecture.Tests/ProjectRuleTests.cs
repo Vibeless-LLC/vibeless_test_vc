@@ -95,7 +95,7 @@ public class ProjectRuleTests
     [Fact]
     public void S3_2_App_DoesNotDependOnCli()
     {
-        var r = AssemblyMustNotDependOn(AppAsm, [.. AppForbidden]);
+        var r = AppMustNotDependOnCli(AppAsm);
         Assert.True(r.IsSuccessful, Describe(r));
     }
 

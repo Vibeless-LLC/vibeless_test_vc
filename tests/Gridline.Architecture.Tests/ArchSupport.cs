@@ -22,6 +22,15 @@ internal static class ArchSupport
     /// <summary>What App MUST NOT depend on (§3.2), for the type-level rule.</summary>
     public static readonly IReadOnlyList<string> AppForbidden = ["Gridline.Cli"];
 
+    /// <summary>The §3.2 App type rule: no type of <paramref name="asm"/> (or, for sanity fixtures, only the type named
+    /// <paramref name="onlyTypeName"/>) may depend on <see cref="AppForbidden"/>. Production and sanity tests both call this.</summary>
+    public static TestResult AppMustNotDependOnCli(Assembly asm, string? onlyTypeName = null)
+    {
+        var types = Types.InAssembly(asm);
+        var rule = onlyTypeName is null ? types.ShouldNot() : types.That().HaveName(onlyTypeName).ShouldNot();
+        return rule.HaveDependencyOnAny([.. AppForbidden]).GetResult();
+    }
+
     /// <summary>Referenced Gridline assemblies of <paramref name="asm"/> that are not in <paramref name="allowed"/>.</summary>
     public static string[] DisallowedGridlineReferences(Assembly asm, IReadOnlyList<string> allowed) =>
         ReferencedGridlineAssemblies(asm).Where(n => !allowed.Contains(n)).ToArray();

@@ -35,7 +35,7 @@ public sealed partial class MainViewModel : ObservableObject
         CopyCommand = new RelayCommand(NotYetAvailable, () => false);
         PasteCommand = new RelayCommand(NotYetAvailable, () => false);
 
-        RefreshSelectionDerived();
+        OnSelectionMoved();
     }
 
     /// <summary>The workbook currently shown. Replaced by New and by opening a file.</summary>
@@ -96,7 +96,7 @@ public sealed partial class MainViewModel : ObservableObject
         _anchor = _active = new Core.Addressing.CellAddress(1, 1);
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
-        RefreshSelectionDerived();
+        OnSelectionMoved(); // the selection is reset to A1, so the grid scrolls there
     }
 
     // Task 8 (§11.5): New on a dirty workbook prompts Save / Don't Save / Cancel first (R45).
@@ -123,7 +123,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
-        RefreshSelectionDerived();
+        RefreshContentDerived(); // repaint only (ContentChanged); the view does not scroll
     }
 
     /// <summary>Title, dirty flag and Undo/Redo availability.</summary>

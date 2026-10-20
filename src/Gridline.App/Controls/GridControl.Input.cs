@@ -26,6 +26,10 @@ public sealed partial class GridControl
             case Key.Home when ctrl: src.SelectCell(new CellAddress(1, 1), shift); break;
             case Key.Home: src.SelectCell(new CellAddress(1, src.ActiveCell.Row), shift); break;
             case Key.End when ctrl: src.SelectCell(src.GetLastUsedCell(), shift); break;
+            // Plain End (Excel's End mode) is not implemented; it is swallowed so the ScrollViewer does not scroll the
+            // view away from the active cell. Every key the ScrollViewer acts on (arrows, PageUp/PageDown, Home, End)
+            // is therefore handled here.
+            case Key.End: break;
             default: return;
         }
         e.Handled = true;
