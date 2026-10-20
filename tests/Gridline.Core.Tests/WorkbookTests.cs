@@ -13,7 +13,7 @@ public class WorkbookTests
     /// <summary>Records every CellsChanged event raised by a workbook.</summary>
     private sealed class EventLog
     {
-        public List<IReadOnlyList<string>> Events { get; } = [];
+        public List<IReadOnlyCollection<string>> Events { get; } = [];
         public EventLog(Workbook wb) => wb.CellsChanged += (sender, e) =>
         {
             Assert.Same(wb, sender);
@@ -27,6 +27,16 @@ public class WorkbookTests
     [InlineData("=ROUND(2.675,2)", "N:2.68")]
     [InlineData("=A1", "E:#CIRC!")]
     [InlineData("=1+", "E:#PARSE!")]
+    [InlineData("=1e999", "E:#NUM!")]                // R53
+    [InlineData("=#n/a", "E:#N/A")]                  // R56
+    [InlineData("=#div/0!", "E:#DIV/0!")]            // R56
+    [InlineData("=#n/a/2", "E:#N/A")]                // R56: '/' after a lower-case code is divide
+    [InlineData("=#N/AX", "E:#PARSE!")]
+    [InlineData("=#FOO!", "E:#PARSE!")]
+    [InlineData("=#N/A", "E:#N/A")]
+    [InlineData("=SUM(1,1e999)", "E:#NUM!")]         // R53
+    [InlineData("=IF(TRUE,1,1e999)", "N:1")]         // R53: untaken branch is never evaluated
+    [InlineData("=IFERROR(1e999,7)", "N:7")]
     public void WorkedExamples_ThroughWorkbook(string input, string expected)
     {
         var wb = new Workbook();
@@ -636,7 +646,7 @@ public class WorkbookTests
         var wb = Workbook.FromCells([new("A1", "=B1"), new("B1", "=A1"), new("C1", "=1/0"), new("D1", "=(")]);
         Assert.Equal(E(ErrorCodes.Circ), wb.GetValue("A1"));
         Assert.Equal(E(ErrorCodes.Circ), wb.GetValue("B1"));
-        Assert.Equal(E(ErrorCodes.DivZero), wb.GetValue("C1"));
+        Assert.Equal(E(ErrorCodes.Div0), wb.GetValue("C1"));
         Assert.Equal(E(ErrorCodes.Parse), wb.GetValue("D1"));
     }
 
@@ -682,7 +692,7 @@ public class WorkbookTests
     public void CellsChangedAddresses_AreReadOnly()
     {
         var wb = new Workbook();
-        IReadOnlyList<string>? seen = null;
+        IReadOnlyCollection<string>? seen = null;
         wb.CellsChanged += (_, e) => seen = e.Addresses;
         wb.SetCell("A1", "1");
         Assert.NotNull(seen);

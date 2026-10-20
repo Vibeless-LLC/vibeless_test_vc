@@ -4,7 +4,11 @@ using Gridline.Core.Addressing;
 
 namespace Gridline.Core.Parsing;
 
-/// <summary>Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='.</summary>
+/// <summary>
+/// Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='. An error literal is the run of
+/// '#' plus letters, digits, '/', '!' and '?', except that a known code followed by '/' ends there and the '/' is the
+/// divide operator (D-12, D-33), so the whitespace-free §5.5 form "#N/A/2" re-parses.
+/// </summary>
 public static class Tokenizer
 {
     public static TokenizeResult Tokenize(string formulaText)
@@ -23,8 +27,9 @@ public static class Tokenizer
             {
                 i = ScanNumber(s, i);
                 string lex = s.Substring(start, i - start);
+                // R53 (§4.4): an overflowing literal such as 1e999 is valid syntax; its value is +inf, which the
+                // evaluator turns into #NUM!. The lexeme is kept for §5.5 printing.
                 double v = double.Parse(lex, NumberStyles.Float, CultureInfo.InvariantCulture);
-                if (!double.IsFinite(v)) return TokenizeResult.Fail($"Number '{lex}' is out of range.", start);
                 tokens.Add(new Token(TokenKind.Number, start, lex, Number: v));
             }
             else if (c == '"')
@@ -50,9 +55,23 @@ public static class Tokenizer
             {
                 i++;
                 while (i < s.Length && (IsAsciiLetter(s[i]) || IsDigit(s[i]) || s[i] is '/' or '!' or '?')) i++;
-                string lex = s.Substring(start, i - start);
-                if (!ErrorCodes.TryGetCanonical(lex, out var canonical)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
-                tokens.Add(new Token(TokenKind.Error, start, lex, Text: canonical));
+                // §5.5 printing emits no whitespace, so "#N/A / 2" prints as "#N/A/2": a '/' may end a literal and be the
+                // divide operator (D-33). When the whole run is unknown, take the longest known code that ends just before a
+                // '/' in the run. Only the first ErrorCodes.MaxLength characters can hold one, so this is O(1) per token and
+                // allocation-free; a 32,767-character "#////..." run stays linear. R56 (§5.1, supersedes R52): codes match
+                // ignoring case and the token carries the canonical upper-case code, so "#n/a/2" is #N/A, Slash, 2.
+                int end = i;
+                if (!ErrorCodes.TryGetCanonical(s.AsSpan(start, end - start), out string code))
+                {
+                    for (int k = Math.Min(end - start - 1, ErrorCodes.MaxLength); k > 0; k--)
+                    {
+                        if (s[start + k] == '/' && ErrorCodes.TryGetCanonical(s.AsSpan(start, k), out code)) { end = start + k; break; }
+                    }
+                    if (end == i)
+                        return TokenizeResult.Fail($"Unknown error literal '{Clip(s, start, i - start)}'.", start);
+                }
+                i = end;
+                tokens.Add(new Token(TokenKind.Error, start, s.Substring(start, end - start), Text: code));
             }
             else if (c == '$' || IsAsciiLetter(c))
             {
@@ -153,4 +172,8 @@ public static class Tokenizer
 
     private static bool IsDigit(char c) => c >= '0' && c <= '9';
     private static bool IsAsciiLetter(char c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+    /// <summary>The run for an error message, cut to 32 characters so a huge bad literal does not echo in full.</summary>
+    private static string Clip(string s, int start, int length)
+        => length <= 32 ? s.Substring(start, length) : string.Concat(s.AsSpan(start, 32), "...");
 }

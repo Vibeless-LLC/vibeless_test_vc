@@ -14,7 +14,18 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
 {
     private Workbook _wb = initial;
 
+    // R40 (§10.3): non-null while a BEGIN block is open; holds the validated SET/SETX edits in order.
+    private List<KeyValuePair<string, string>>? _block;
+
     public bool AnyError { get; private set; }
+
+    /// <summary>End of input (R40): an open BEGIN block is reported and its batch discarded.</summary>
+    public void Finish()
+    {
+        if (_block is null) return;
+        _block = null;
+        Fail("unterminated BEGIN block");
+    }
 
     /// <summary>Reports a line that could not be executed (e.g. over the length cap) as an ERR line.</summary>
     public void RejectLine(string message) => Fail(message);
@@ -39,10 +50,24 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
 
     private bool Dispatch(string word, string rest)
     {
+        if (_block is not null) return DispatchInBlock(word, rest);
         switch (word)
         {
-            case "SET": Set(rest, unescape: false); return true;
-            case "SETX": Set(rest, unescape: true); return true;
+            case "SET": { var (a, i) = ParseSet(rest, unescape: false); _wb.SetCell(a, i); } return true;
+            case "SETX": { var (a, i) = ParseSet(rest, unescape: true); _wb.SetCell(a, i); } return true;
+            case "BEGIN": NoArgs(word, rest); _block = []; return true;
+            case "END": NoArgs(word, rest); throw new CliException(ExitCodes.Usage, "END without BEGIN");
+            case "UNDO": NoArgs(word, rest); ctx.Out(_wb.Undo() ? "OK\n" : "NOOP\n"); return true;
+            case "REDO": NoArgs(word, rest); ctx.Out(_wb.Redo() ? "OK\n" : "NOOP\n"); return true;
+            case "DIRTY": NoArgs(word, rest); ctx.Out(_wb.IsDirty ? "TRUE\n" : "FALSE\n"); return true;
+            case "PASTE":
+                {
+                    string[] parts = rest.Split(' ');
+                    if (rest.Length == 0 || parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+                        throw new CliException(ExitCodes.Usage, "PASTE requires <srcRange> <dstAddr>");
+                    _wb.CopyPaste(parts[0], parts[1]);
+                }
+                return true;
             case "GET":
                 { string a = OneAddress(rest); ctx.Out(a + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n"); }
                 return true;
@@ -60,6 +85,7 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                 return true;
             case "SAVE":
                 GridlineFile.SaveToPath(_wb, Path(word, rest));
+                _wb.MarkSaved(); // §10.3 "From Phase 2 on": only after a successful save
                 return true;
             case "LOAD":
                 _wb = GridlineFile.LoadFromPath(Path(word, rest)); // assigned only on success
@@ -68,7 +94,28 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         }
     }
 
-    private void Set(string rest, bool unescape)
+    // R40: inside BEGIN only SET/SETX (validated exactly as outside a block, then buffered) and END are accepted.
+    private bool DispatchInBlock(string word, string rest)
+    {
+        switch (word)
+        {
+            case "SET": case "SETX":
+                _block!.Add(ToPair(ParseSet(rest, unescape: word == "SETX")));
+                return true;
+            case "END":
+                NoArgs(word, rest);
+                var batch = _block!;
+                _block = null; // the block is closed even if ApplyBatch throws
+                if (batch.Count > 0) _wb.ApplyBatch(batch);
+                return true;
+            case "BEGIN": NoArgs(word, rest); throw new CliException(ExitCodes.Usage, "BEGIN inside an open BEGIN block");
+            default: throw new CliException(ExitCodes.Usage, "command not allowed inside BEGIN block");
+        }
+    }
+
+    private static KeyValuePair<string, string> ToPair((string addr, string input) e) => new(e.addr, e.input);
+
+    private static (string addr, string input) ParseSet(string rest, bool unescape)
     {
         int sp = rest.IndexOf(' ');
         string addrText = sp < 0 ? rest : rest[..sp];
@@ -77,7 +124,7 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         string addr = CellArgs.Canonical(addrText);
         if (unescape) input = Unescape(input);
         CellArgs.CheckInputLength(input);
-        _wb.SetCell(addr, input);
+        return (addr, input);
     }
 
     private static string Unescape(string s)

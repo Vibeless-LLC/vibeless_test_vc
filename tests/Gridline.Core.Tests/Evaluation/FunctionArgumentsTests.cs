@@ -23,11 +23,13 @@ public class FunctionArgumentsTests
     public void IsOmitted(string formula, double mask) => Assert.Equal(N(mask), Run(formula));
 
     [Fact]
-    public void OmittedArgument_EvaluatesToBlank()
+    public void OmittedArgument_EvaluatesToValueError_R38()
     {
+        // §5.3, R38: an omitted argument with no default is #VALUE!; functions with a default check IsOmitted first.
         var fns = new FakeFunctions();
-        fns.Add("KIND", a => CellValue.FromText(a.Evaluate(1).Kind.ToString()));
-        Assert.Equal(T("Blank"), Run("KIND(1,)", functions: fns));
+        fns.Add("SHOW", a => CellValue.FromText(a.Evaluate(1).ToCanonicalString()));
+        Assert.Equal(T("E:#VALUE!"), Run("SHOW(1,)", functions: fns));
+        Assert.Equal(T("E:#VALUE!"), Run("SHOW(,)", functions: fns));
     }
 
     [Theory]

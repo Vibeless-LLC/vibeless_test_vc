@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Gridline.Core.Addressing;
+using Gridline.Core.Commands;
 using Gridline.Core.Dependencies;
 using Gridline.Core.Evaluation;
 using Gridline.Core.Functions;
@@ -21,8 +23,9 @@ public sealed class CellsChangedEventArgs : EventArgs
         Addresses = Array.AsReadOnly(addresses as string[] ?? [.. addresses]);
     }
 
-    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once. Read-only: casting to <see cref="IList{T}"/> yields a read-only list.</summary>
-    public IReadOnlyList<string> Addresses { get; }
+    /// <summary>Canonical addresses of every cell whose input or value changed, row-major, each once (§9.1: declared as
+    /// <see cref="IReadOnlyCollection{T}"/>). Read-only: casting to <see cref="IList{T}"/> yields a read-only list.</summary>
+    public IReadOnlyCollection<string> Addresses { get; }
 }
 
 /// <summary>
@@ -31,7 +34,7 @@ public sealed class CellsChangedEventArgs : EventArgs
 /// raises <see cref="CellsChanged"/> at most once afterwards, and is atomic: if it throws, the workbook is unchanged.
 /// Not thread-safe; use from one thread only.
 /// </summary>
-public sealed class Workbook
+public sealed partial class Workbook
 {
     public const int MaxRows = GridBounds.MaxRows;
     public const int MaxColumns = GridBounds.MaxColumns;
@@ -55,9 +58,10 @@ public sealed class Workbook
 
     // Per-call scratch, reused so an edit allocates no whole-workbook structures (P-3).
     private readonly CellAddress[] _changedOne = new CellAddress[1];
-    private const int UndoRetainCapacity = 1024; // entries; a larger log (huge recalc) is dropped, not retained
-    private List<(Entry Entry, CellValue OldValue)> _undo = [];
+    private const int RollbackRetainCapacity = 1024; // entries; a larger log (huge recalc) is dropped, not retained
+    private List<(Entry Entry, CellValue OldValue)> _rollback = []; // values written by the running recalc (§9.2)
     private bool _logWrites;
+    private readonly UndoHistory _history = new(UndoLimit); // §9.3
 
     public Workbook() : this(BuiltInFunctionTable.Default) { }
 
@@ -77,7 +81,8 @@ public sealed class Workbook
 
     /// <summary>
     /// Builds a workbook from (address, input) pairs in one step (R5): every entry is validated first, then the cells
-    /// are stored and one full recalculation runs. Empty inputs are skipped. No <see cref="CellsChanged"/> is raised.
+    /// are stored and one full recalculation runs. Empty inputs are skipped. No <see cref="CellsChanged"/> is raised;
+    /// the result is clean with an empty undo history (§8.2, §9.3).
     /// </summary>
     /// <exception cref="ArgumentException">An address or input is null or invalid, an input is too long, or two
     /// entries name the same cell (compared canonically, so "a1" and "$A$1" duplicate "A1"). Nothing is built.</exception>
@@ -111,8 +116,9 @@ public sealed class Workbook
     }
 
     /// <summary>
-    /// Sets a cell's input (§4.3, §9.1) and recalculates. "" clears the cell; input identical to the current input
-    /// is a complete no-op (R24). A formula that fails to parse is stored and evaluates to #PARSE!.
+    /// Sets a cell's input (§4.3, §9.1) and recalculates; one undo step (§9.3). "" clears the cell; input identical
+    /// to the current input is a complete no-op with no step (R24). A formula that fails to parse is stored and
+    /// evaluates to #PARSE!.
     /// </summary>
     /// <exception cref="ArgumentException">The address is null, invalid or a range, or the input is null or longer
     /// than <see cref="MaxInputLength"/>. The workbook is unchanged.</exception>
@@ -120,48 +126,13 @@ public sealed class Workbook
     {
         var cell = ParseAddress(address, nameof(address));
         ValidateInput(input, nameof(input));
-        int key = CellKey.Pack(cell);
-        _cells.TryGetValue(key, out var old);
-        if (string.Equals(old?.Input ?? "", input, StringComparison.Ordinal))
+        string current = _cells.TryGetValue(CellKey.Pack(cell), out var entry) ? entry.Input : "";
+        if (string.Equals(current, input, StringComparison.Ordinal))
         {
             LastRecalc = default; // R24
             return;
         }
-
-        // Pure; nothing is mutated yet. A formula keeps the cell's old value until recalc writes the new one, which is
-        // what RecalcResult.ChangedCells compares against (RecalcResult contract).
-        var entry = input.Length == 0 ? null : CreateEntry(input, old?.Value ?? CellValue.Blank);
-        bool edgesChanged = old?.Formula is not null || entry?.Formula is not null;
-
-        RecalcResult result;
-        _undo.Clear();
-        _logWrites = true;
-        try
-        {
-            if (entry is null) _cells.Remove(key);
-            else _cells[key] = entry;
-            if (edgesChanged) _graph.SetFormula(cell, entry?.Formula);
-            _changedOne[0] = cell;
-            result = _graph.Recalculate(_changedOne, _target, _functions);
-        }
-        catch
-        {
-            for (int i = _undo.Count - 1; i >= 0; i--) _undo[i].Entry.Value = _undo[i].OldValue;
-            if (old is null) _cells.Remove(key);
-            else _cells[key] = old;
-            if (edgesChanged) _graph.SetFormula(cell, old?.Formula);
-            throw;
-        }
-        finally
-        {
-            _logWrites = false;
-            if (_undo.Capacity > UndoRetainCapacity) _undo = []; // release the big backing array
-            else _undo.Clear();
-        }
-
-        LastRecalc = new RecalcStats(result.EvaluatedFormulaCount);
-        var handler = CellsChanged;
-        if (handler is not null) handler(this, new CellsChangedEventArgs(ChangedAddresses(key, result.ChangedCells)));
+        Perform(new UndoStep([new CellEdit(cell, current, input)])); // O(1) step
     }
 
     /// <summary>The cell's input as entered; "" for an empty cell.</summary>
@@ -173,6 +144,10 @@ public sealed class Workbook
     /// <exception cref="ArgumentException">The address is null, invalid or a range.</exception>
     public CellValue GetValue(string address) =>
         _cells.TryGetValue(CellKey.Pack(ParseAddress(address, nameof(address))), out var e) ? e.Value : CellValue.Blank;
+
+    /// <summary>The number of non-empty cells, O(1) (the count <see cref="GetUsedAddresses"/> would return, without the
+    /// sort). Internal: not part of the §9.1 surface; the App uses it to choose a selection-scan strategy.</summary>
+    internal int UsedCellCount => _cells.Count;
 
     /// <summary>Canonical addresses of every non-empty cell, row-major (row, then column).</summary>
     public IReadOnlyList<string> GetUsedAddresses()
@@ -206,13 +181,13 @@ public sealed class Workbook
             : new Entry(input, null, interpreted.Value);
     }
 
-    /// <summary>The edited cell (its input always changed) plus the formula cells whose value changed.</summary>
-    private static string[] ChangedAddresses(int editedKey, IReadOnlyList<CellAddress> changedFormulas)
+    /// <summary>The edited cells (their inputs always changed) plus the formula cells whose value changed.</summary>
+    private static string[] ChangedAddresses(ImmutableArray<CellEdit> edits, IReadOnlyList<CellAddress> changedFormulas)
     {
-        if (changedFormulas.Count == 0) return [CellKey.Unpack(editedKey).ToString()];
-        var keys = new int[changedFormulas.Count + 1];
-        keys[0] = editedKey;
-        for (int i = 0; i < changedFormulas.Count; i++) keys[i + 1] = CellKey.Pack(changedFormulas[i]);
+        if (edits.Length == 1 && changedFormulas.Count == 0) return [edits[0].Address.ToString()];
+        var keys = new int[edits.Length + changedFormulas.Count];
+        for (int i = 0; i < edits.Length; i++) keys[i] = CellKey.Pack(edits[i].Address);
+        for (int i = 0; i < changedFormulas.Count; i++) keys[edits.Length + i] = CellKey.Pack(changedFormulas[i]);
         return ToSortedAddresses(keys);
     }
 
@@ -247,7 +222,7 @@ public sealed class Workbook
         public void SetComputedValue(CellAddress address, CellValue value)
         {
             var entry = owner._cells[CellKey.Pack(address)];
-            if (owner._logWrites) owner._undo.Add((entry, entry.Value));
+            if (owner._logWrites) owner._rollback.Add((entry, entry.Value));
             entry.Value = value;
         }
     }

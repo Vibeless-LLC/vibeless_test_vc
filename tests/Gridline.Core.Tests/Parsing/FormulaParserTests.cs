@@ -145,7 +145,16 @@ public class FormulaParserTests
 
     [Fact] public void StringLiteralIsUnescaped() => Assert.Equal("Str(say \"hi\")", Shape("\"say \"\"hi\"\"\""));
     [Fact] public void BooleansParse() => Assert.Equal("Binary(=,TRUE,FALSE)", Shape("true=FALSE"));
-    [Fact] public void ErrorLiteralIsCanonical() => Assert.Equal("#N/A", Shape("#n/a"));
+    [Fact] public void ErrorLiteralParses() => Assert.Equal("#N/A", Shape("#N/A"));
+    [Fact] public void ErrorLiteralInLowerCase_ParsesAsTheCanonicalCode_R56() => Assert.Equal("#N/A", Shape("#n/a"));
+
+    [Fact]
+    public void NonFiniteNumberLiteral_ParsesAndKeepsLexeme_R53()
+    {
+        var n = Assert.IsType<NumberNode>(FormulaParser.Parse("1E999", null).Root);
+        Assert.Equal(double.PositiveInfinity, n.Value);
+        Assert.Equal("1E999", n.Lexeme);
+    }
     [Fact] public void NameParses() => Assert.Equal("Binary(+,Name(myName),1)", Shape("myName+1"));
     [Fact] public void CellRefKeepsDollarFlags() => Assert.Equal("Ref($B$7)", Shape("$b$7"));
 

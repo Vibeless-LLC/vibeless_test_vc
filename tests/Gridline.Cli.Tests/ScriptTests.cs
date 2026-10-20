@@ -136,7 +136,7 @@ public sealed class ScriptTests : IDisposable
     [Fact]
     public void UnknownAndLaterPhaseCommandsPrintNotImplemented()
     {
-        var (code, o, _) = Script("UNDO\nFROBNICATE 1 2\n");
+        var (code, o, _) = Script("NAMES\nFROBNICATE 1 2\n");
         Assert.Equal(4, code);
         Assert.Equal("ERR\tnot implemented\nERR\tnot implemented\n", o);
     }

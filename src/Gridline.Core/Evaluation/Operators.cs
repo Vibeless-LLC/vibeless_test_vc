@@ -34,7 +34,7 @@ internal static class Operators
             BinaryOperator.Add => CellValue.FromNumber(a + b),
             BinaryOperator.Subtract => CellValue.FromNumber(a - b),
             BinaryOperator.Multiply => CellValue.FromNumber(a * b),
-            BinaryOperator.Divide => b == 0 ? Errors.DivZero : CellValue.FromNumber(a / b),
+            BinaryOperator.Divide => b == 0 ? Errors.Div0 : CellValue.FromNumber(a / b),
             BinaryOperator.Power => Power(a, b),
             _ => throw new ArgumentOutOfRangeException(nameof(op)),
         };
@@ -64,7 +64,7 @@ internal static class Operators
         if (a == 0)
         {
             if (b == 0) return Errors.Num;
-            if (b < 0) return Errors.DivZero;
+            if (b < 0) return Errors.Div0;
         }
         if (a < 0 && b != Math.Floor(b)) return Errors.Num;
         return CellValue.FromNumber(Math.Pow(a, b));

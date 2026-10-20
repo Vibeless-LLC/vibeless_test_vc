@@ -1,0 +1,22 @@
+<Window x:Class="Gridline.App.UnsavedChangesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gridline"
+        AutomationProperties.AutomationId="UnsavedChangesPrompt"
+        SizeToContent="WidthAndHeight" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- R45: Save / Don't Save / Cancel, AutomationIds PromptSave, PromptDontSave, PromptCancel. Esc and the close button
+         mean Cancel. -->
+    <StackPanel Margin="16" MinWidth="320">
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" MaxWidth="420" Margin="0,0,0,16"
+                   AutomationProperties.AutomationId="PromptMessage" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="SaveButton" Content="Save" MinWidth="80" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.AutomationId="PromptSave" Click="Save_Click" />
+            <Button Content="Don't Save" MinWidth="80" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="PromptDontSave" Click="DontSave_Click" />
+            <Button Content="Cancel" MinWidth="80" IsCancel="True"
+                    AutomationProperties.AutomationId="PromptCancel" />
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -251,3 +251,66 @@ public class RuleSanityTests
     [Fact]
     public void RootTypeEnumeration_IsNonVacuous() => Assert.Contains("Gridline.Core.Workbook", CoreRootTypeNames());
 }
+
+/// <summary>Sanity cases for the App rules (§3.2 App row, §2 BCL-only, R42), through the production helpers (D-37).</summary>
+public class AppRuleSanityTests
+{
+    private static readonly System.Reflection.Assembly Self = typeof(AppRuleSanityTests).Assembly;
+
+    // Through the same helper S3_2_App_DoesNotDependOnCli uses, narrowed to one fixture type.
+    private static TestResult AppRuleOn(Type t) => AppMustNotDependOnCli(Self, t.Name);
+
+    [Fact]
+    public void AppCliRule_FailsOnKnownViolation()
+    {
+        var r = AppRuleOn(typeof(UsesCli));
+        Assert.False(r.IsSuccessful, "a dependency on Gridline.Cli was not detected");
+        Assert.Contains(typeof(UsesCli).FullName!, r.FailingTypeNames!);
+    }
+
+    [Fact]
+    public void AppCliRule_AllowsCoreIoAndWpf() => Assert.True(AppRuleOn(typeof(UsesCoreIoAndWpf)).IsSuccessful);
+
+    // The whole-assembly form (production) also fails here: this test assembly uses Gridline.Cli.
+    [Fact]
+    public void AppCliRule_WholeAssemblyFormFailsOnThisAssembly() => Assert.False(AppMustNotDependOnCli(Self).IsSuccessful);
+
+    [Fact]
+    public void AppReferenceRule_FlagsACliReference()
+    {
+        // This test assembly references Gridline.Cli (and Gridline.App), which App's reference rule must reject.
+        var bad = DisallowedGridlineReferences(Self, AppAllowedGridline);
+        Assert.Contains(CliAsm.GetName().Name!, bad); // the Cli assembly is named "gridline" (§2)
+        Assert.Equal("gridline", CliAsm.GetName().Name);
+        Assert.DoesNotContain("Gridline.Core", bad);
+        Assert.DoesNotContain("Gridline.IO", bad);
+    }
+
+    [Fact]
+    public void BclRule_FlagsPackagesAndWpfOutsideApp()
+    {
+        // The test assembly references xunit and NetArchTest (packages): flagged with or without the WPF allowance.
+        Assert.Contains(NonBclReferences(Self, allowWpf: true), s => s.Contains("NetArchTest.Rules"));
+        Assert.Contains(NonBclReferences(Self, allowWpf: true), s => s.Contains("xunit"));
+        // It also references PresentationFramework (fixtures): allowed only with the App allowance.
+        Assert.Contains(NonBclReferences(Self, allowWpf: false), s => s.Contains("PresentationFramework"));
+        Assert.DoesNotContain(NonBclReferences(Self, allowWpf: true), s => s.Contains("PresentationFramework"));
+        Assert.DoesNotContain(NonBclReferences(Self, allowWpf: true), s => s.Contains("System.Runtime "));
+    }
+
+    [Fact]
+    public void MutableStaticChecker_AllowsR42Identifiers() => Assert.Empty(FindPublicMutableStatics([typeof(R42Identifiers)]));
+
+    [Fact]
+    public void MutableStaticChecker_FlagsGenuineMutableWpfStatics()
+    {
+        var found = FindPublicMutableStatics([typeof(BadWpfStatics)]);
+        Assert.Contains(found, s => s.Contains("NotReadonlyProperty") && s.Contains("not readonly"));
+        Assert.Contains(found, s => s.Contains("SharedBrush"));
+        Assert.Contains(found, s => s.Contains("SharedPenProp"));
+        Assert.Contains(found, s => s.Contains("Registry"));
+        Assert.Contains(found, s => s.Contains("SettableCommand") && s.Contains("settable"));
+        Assert.Contains(found, s => s.Contains("PlainRoutedCommand"));
+        Assert.Equal(7, found.Count); // SettableCommand is reported twice: settable, and of mutable type
+    }
+}

@@ -12,7 +12,7 @@ public class PerformanceCollection;
 
 /// <summary>
 /// The release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
-/// P-6 (GUI) belongs with the App phase. Budgets are defined for Release builds, so the gates are skipped in Debug.
+/// P-6 (GUI) is `Gridline.App.Tests.UI.P6PerformanceUiTests` (D-40). Budgets are defined for Release builds, so the gates are skipped in Debug.
 /// Method: one warm-up, then the median of 5 runs (P-3: median of 1,000 edits per run, median of 5 runs).
 /// Fixtures follow ruling R32 and are built in code. Budgets are never relaxed; optimise the hot path instead.
 /// </summary>

@@ -21,7 +21,7 @@ public class TextFunctionTests
         Assert.Equal(N(0), Run("LEN(A1)"));
         Assert.Equal(N(4), Run("LEN(TRUE)"));
         Assert.Equal(N(2), Run("LEN(\"\U0001F600\")")); // surrogate pair = 2 UTF-16 units
-        Assert.Equal(E(ErrorCodes.DivZero), Run("LEN(1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("LEN(1/0)"));
         Assert.Equal(V, Run("LEN(A1:A2)"));
     }
 
@@ -80,7 +80,7 @@ public class TextFunctionTests
         Assert.Equal(S("x2yz"), Run("CONCAT(A1:B2)", cells)); // row-major
         Assert.Equal(S("xy"), Run("CONCAT(A1,C9,A2)", cells)); // blank -> ""
         Assert.Equal(E(ErrorCodes.NA), Run("CONCAT(\"a\",A9,1/0)", NaCell()));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("CONCAT(1/0,A9)", NaCell()));
+        Assert.Equal(E(ErrorCodes.Div0), Run("CONCAT(1/0,A9)", NaCell()));
         Assert.Equal(E(ErrorCodes.NA), Run("CONCAT(A8:A9)", NaCell()));
         Assert.Equal(S("1E-05"), Run("CONCAT(0.00001)"));
     }
@@ -104,7 +104,7 @@ public class TextFunctionTests
         Assert.Equal(S(""), Run("TEXTJOIN(\",\",TRUE,\"\")"));
         Assert.Equal(S("1--2"), Run("TEXTJOIN(\"--\",TRUE,1,2)"));
         Assert.Equal(V, Run("TEXTJOIN(\",\",\"x\",1)"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("TEXTJOIN(\",\",TRUE,1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("TEXTJOIN(\",\",TRUE,1/0)"));
         Assert.Equal(V, Run("TEXTJOIN(REPT(\"x\",20000),TRUE,1,2,3)"));
     }
 
@@ -152,6 +152,8 @@ public class TextFunctionTests
         Assert.Equal(N(3), Run("SEARCH(\"c~\",\"abc~\")"));          // dangling ~ stands for itself, at the end
         Assert.Equal(N(2), Run("SEARCH(\"~\",\"a~b\")"));
         Assert.Equal(V, Run("SEARCH(\"c~\",\"abc\")"));
+        Assert.Equal(N(2), Run("SEARCH(\"~a\",\"xa\")"));          // §7.3: ~ escapes the next character, any character
+        Assert.Equal(N(3), Run("SEARCH(\"~a\",\"x~a\")"));         // so "~a" is the literal "a", not "~a"
         Assert.Equal(V, Run("SEARCH(\"*b\",\"abc\",3)"));
     }
 
@@ -246,7 +248,7 @@ public class TextFunctionTests
         Assert.Equal(N(-3), Run("VALUE(\" -3 \")"));
         Assert.Equal(N(7), Run("VALUE(7)"));
         Assert.Equal(V, Run("VALUE(\"abc\")"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("VALUE(1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("VALUE(1/0)"));
     }
 
     [Fact]
@@ -262,6 +264,6 @@ public class TextFunctionTests
     public void ErrorsPropagateInArgumentOrder()
     {
         Assert.Equal(E(ErrorCodes.NA), Run("MID(A9,1/0,1)", NaCell()));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("MID(\"a\",1/0,A9)", NaCell()));
+        Assert.Equal(E(ErrorCodes.Div0), Run("MID(\"a\",1/0,A9)", NaCell()));
     }
 }

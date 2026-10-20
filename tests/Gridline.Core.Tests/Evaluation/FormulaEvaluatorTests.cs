@@ -19,8 +19,15 @@ public class FormulaEvaluatorTests
         Assert.Equal(N(1.5), Run("1.5"));
         Assert.Equal(T("hi \"x\""), Run("\"hi \"\"x\"\"\""));
         Assert.Equal(B(true), Run("true"));
-        Assert.Equal(E(ErrorCodes.NA), Run("#n/a"));
+        Assert.Equal(E(ErrorCodes.NA), Run("#N/A"));
     }
+
+    // R53 (§4.4): an overflowing number literal is valid syntax and evaluates to #NUM!.
+    [Theory]
+    [InlineData("1e999")]
+    [InlineData("-1E999")]
+    [InlineData("1e999-1e999")]
+    public void NonFiniteLiteral_IsNum(string formula) => Assert.Equal(E(ErrorCodes.Num), Run(formula));
 
     [Fact]
     public void CellReference_ReturnsCellValue()
@@ -76,7 +83,7 @@ public class FormulaEvaluatorTests
     // ---- §6.4 error propagation ----
 
     [Theory]
-    [InlineData("#DIV/0!+#N/A", ErrorCodes.DivZero)]
+    [InlineData("#DIV/0!+#N/A", ErrorCodes.Div0)]
     [InlineData("#N/A+#DIV/0!", ErrorCodes.NA)]
     [InlineData("#N/A&#REF!", ErrorCodes.NA)]
     [InlineData("#REF!=#N/A", ErrorCodes.Ref)]
@@ -84,12 +91,12 @@ public class FormulaEvaluatorTests
     [InlineData("#NUM!*0", ErrorCodes.Num)]
     [InlineData("-#N/A", ErrorCodes.NA)]
     [InlineData("#N/A%", ErrorCodes.NA)]
-    [InlineData("(1/0)+#N/A", ErrorCodes.DivZero)]
+    [InlineData("(1/0)+#N/A", ErrorCodes.Div0)]
     [InlineData("#N/A+(1/0)", ErrorCodes.NA)]
     [InlineData("\"a\"+#N/A", ErrorCodes.Value)]     // left's coercion failure comes first
     [InlineData("#N/A+\"a\"", ErrorCodes.NA)]
     [InlineData("1+\"a\"*#N/A", ErrorCodes.Value)]
-    [InlineData("(1/0)^0", ErrorCodes.DivZero)]
+    [InlineData("(1/0)^0", ErrorCodes.Div0)]
     [InlineData("#N/A=#N/A", ErrorCodes.NA)]
     [InlineData("1<#N/A", ErrorCodes.NA)]
     [InlineData("A1:B2+#N/A", ErrorCodes.Value)]     // range error on the left wins
@@ -100,9 +107,9 @@ public class FormulaEvaluatorTests
     [Fact]
     public void ErrorInReferencedCell_Propagates()
     {
-        var cells = new DictionaryCells().Set("A1", E(ErrorCodes.NA)).Set("B1", E(ErrorCodes.DivZero));
+        var cells = new DictionaryCells().Set("A1", E(ErrorCodes.NA)).Set("B1", E(ErrorCodes.Div0));
         Assert.Equal(E(ErrorCodes.NA), Run("A1+B1", cells));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("B1&A1", cells));
+        Assert.Equal(E(ErrorCodes.Div0), Run("B1&A1", cells));
         Assert.Equal(E(ErrorCodes.NA), Run("A1=B1", cells));
     }
 

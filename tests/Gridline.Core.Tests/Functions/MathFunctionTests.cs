@@ -27,10 +27,10 @@ public class MathFunctionTests
     public void AcceptanceCases(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
 
     [Fact]
-    public void EmptyAverage_IsDivZero()
+    public void EmptyAverage_IsDiv0()
     {
-        Assert.Equal(E(ErrorCodes.DivZero), Run("AVERAGE(A1:A3)"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("AVERAGE(A1:A3,B1)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("AVERAGE(A1:A3)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("AVERAGE(A1:A3,B1)"));
     }
 
     // ---- ROUND family ----
@@ -86,7 +86,7 @@ public class MathFunctionTests
     {
         Assert.Equal(E(ErrorCodes.Value), Run("ROUND(\"x\",1)"));
         Assert.Equal(E(ErrorCodes.NA), Run("ROUND(#N/A,#DIV/0!)"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("ROUND(1,#DIV/0!)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("ROUND(1,#DIV/0!)"));
     }
 
     // ---- SUM / aggregation ----
@@ -112,8 +112,8 @@ public class MathFunctionTests
         Assert.Equal(N(6), Run("SUM(\"5\",TRUE)"));
         Assert.Equal(E(ErrorCodes.Value), Run("SUM(\"x\")"));
         Assert.Equal(E(ErrorCodes.Value), Run("SUM(1,\"x\")"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("SUM(1,1/0)"));
-        Assert.Equal(N(3), Run("SUM(1,,2)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("SUM(1,1/0)"));
+        Assert.Equal(E(ErrorCodes.Value), Run("SUM(1,,2)"));                // R38: omitted has no default
         Assert.Equal(N(0.5), Run("SUM(\"50%\")"));
     }
 
@@ -156,7 +156,7 @@ public class MathFunctionTests
         Assert.Equal(N(2.5), Run("AVERAGE(A1:A5)", Mixed()));
         Assert.Equal(N(7.0 / 3), Run("AVERAGE(1,\"5\",TRUE,A2)", Mixed()));  // direct 1, 5, TRUE=1; reference A2 (text) ignored
         Assert.Equal(E(ErrorCodes.Value), Run("AVERAGE(\"x\")"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("AVERAGE(A2:A3)", Mixed()));
+        Assert.Equal(E(ErrorCodes.Div0), Run("AVERAGE(A2:A3)", Mixed()));
     }
 
     [Fact]
@@ -201,7 +201,7 @@ public class MathFunctionTests
         Assert.Equal(N(3), Run("COUNT(1,TRUE,\"5\")"));                    // direct: numbers, booleans, numeric text
         Assert.Equal(N(0), Run("COUNT(\"x\",#N/A)"));                       // direct text / error: not counted, not propagated
         Assert.Equal(N(0), Run("COUNT(A1:A2)", new DictionaryCells().Set("A1", E(ErrorCodes.Ref))));
-        Assert.Equal(N(3), Run("COUNT(1,,2)"));                             // R34: omitted direct argument counts as 0
+        Assert.Equal(N(2), Run("COUNT(1,,2)"));                             // R38: an omitted argument is ignored
     }
 
     [Fact]
@@ -211,7 +211,7 @@ public class MathFunctionTests
         Assert.Equal(N(7), Run("COUNTA(A1:A7)", cells.Set("A7", 0)));      // everything non-blank incl. errors and ""
         Assert.Equal(N(0), Run("COUNTA(A9:A10)"));
         Assert.Equal(N(3), Run("COUNTA(1,\"\",#N/A)"));                    // direct: every present value incl. errors and ""
-        Assert.Equal(N(3), Run("COUNTA(1,,2)"));                           // R34
+        Assert.Equal(N(2), Run("COUNTA(1,,2)"));                           // R38: an omitted argument is ignored
     }
 
     // Regression (§7.1): ROUND family extremes and sign handling.
@@ -223,18 +223,6 @@ public class MathFunctionTests
     [InlineData("ROUNDDOWN(1.29,1)", 1.2)]
     public void RoundFamilyRegression(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
 
-    // R34 (§7.0): an omitted direct argument is the number 0 in every aggregate, consistently.
-    [Theory]
-    [InlineData("SUM(1,,2)", 3)]
-    [InlineData("AVERAGE(1,)", 0.5)]
-    [InlineData("COUNT(1,,2)", 3)]
-    [InlineData("COUNTA(1,,2)", 3)]
-    [InlineData("MIN(1,)", 0)]
-    [InlineData("MAX(-1,)", 0)]
-    [InlineData("PRODUCT(2,,3)", 0)]
-    [InlineData("SUMSQ(2,)", 4)]
-    public void OmittedDirectArgumentIsZero_R34(string formula, double expected) => Assert.Equal(N(expected), Run(formula));
-
     // R35 (§7.1): the first error in argument order wins, scanning argument 1 fully before argument 2.
     [Fact]
     public void SumProduct_FirstErrorInArgumentOrder_R35()
@@ -244,7 +232,7 @@ public class MathFunctionTests
             .Set("B1", E(ErrorCodes.NA)).Set("B2", 1).Set("B3", 1);
         Assert.Equal(E(ErrorCodes.Ref), Run("SUMPRODUCT(A1:A3,B1:B3)", cells));   // row-major would find B1 first
         Assert.Equal(E(ErrorCodes.NA), Run("SUMPRODUCT(B1:B3,A1:A3)", cells));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("SUMPRODUCT(1/0,#N/A)"));          // scalars: left to right
+        Assert.Equal(E(ErrorCodes.Div0), Run("SUMPRODUCT(1/0,#N/A)"));          // scalars: left to right
     }
 
     // R35 (§7.1): MOD is #NUM! when |n/d| >= 2^27, else n - d*floor(n/d).
@@ -311,7 +299,7 @@ public class MathFunctionTests
     {
         Assert.Equal(N(6), Run("SUMPRODUCT(2,3)"));
         Assert.Equal(N(0), Run("SUMPRODUCT(2,\"x\")"));
-        Assert.Equal(E(ErrorCodes.DivZero), Run("SUMPRODUCT(2,1/0)"));
+        Assert.Equal(E(ErrorCodes.Div0), Run("SUMPRODUCT(2,1/0)"));
     }
 
     // ---- Scalar functions ----
@@ -345,10 +333,10 @@ public class MathFunctionTests
 
     [Theory]
     [InlineData("SQRT(-1)", ErrorCodes.Num)]
-    [InlineData("MOD(1,0)", ErrorCodes.DivZero)]
-    [InlineData("MOD(0,0)", ErrorCodes.DivZero)]
+    [InlineData("MOD(1,0)", ErrorCodes.Div0)]
+    [InlineData("MOD(0,0)", ErrorCodes.Div0)]
     [InlineData("POWER(0,0)", ErrorCodes.Num)]
-    [InlineData("POWER(0,-1)", ErrorCodes.DivZero)]
+    [InlineData("POWER(0,-1)", ErrorCodes.Div0)]
     [InlineData("POWER(-8,0.5)", ErrorCodes.Num)]
     [InlineData("POWER(10,400)", ErrorCodes.Num)]
     [InlineData("ABS(\"x\")", ErrorCodes.Value)]

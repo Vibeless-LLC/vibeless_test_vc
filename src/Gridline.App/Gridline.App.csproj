@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Gridline.App</AssemblyName>
+    <RootNamespace>Gridline.App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Gridline.App.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Gridline.Core\Gridline.Core.csproj" />
+    <ProjectReference Include="..\Gridline.IO\Gridline.IO.csproj" />
+  </ItemGroup>
+</Project>

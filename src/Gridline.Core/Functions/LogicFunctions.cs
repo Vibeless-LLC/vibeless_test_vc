@@ -7,10 +7,11 @@ namespace Gridline.Core.Functions;
 /// </summary>
 /// <remarks>
 /// IF evaluates its condition and then only the chosen branch; IFERROR/IFNA evaluate the alternative only when needed.
-/// Omitted arguments: <c>IF(c,)</c> returns 0 for the true branch, <c>IF(c,t)</c> (no third argument) returns FALSE, and
-/// <c>IF(c,t,)</c> (written but empty third argument) returns 0, as Excel does.
+/// Omitted arguments (§5.3, §7.2, R38): an omitted branch is absent, so its default applies: the true branch is 0 and the
+/// false branch FALSE, whether the third argument is left out (<c>IF(c,t)</c>) or written empty (<c>IF(c,t,)</c>). An
+/// omitted condition, and any other omitted argument here, is #VALUE! (IFERROR catches it).
 /// AND/OR/XOR: a reference argument contributes its boolean cells and its numbers (non-zero is TRUE) and ignores text
-/// and blanks; a direct argument is coerced by <see cref="Coercion.ToBoolean"/> (omitted counts as FALSE). An error
+/// and blanks; a direct argument is coerced by <see cref="Coercion.ToBoolean"/> (omitted is #VALUE!, R38). An error
 /// propagates (first in argument order). With no logical value at all the result is #VALUE! (R18).
 /// The IS* tests never return an error; a multi-cell range gives FALSE (R18). ISBLANK is TRUE only for a reference to a
 /// single truly blank cell: a formula result of "" is text, and a non-reference argument gives FALSE.
@@ -48,8 +49,8 @@ internal static class LogicFunctions
         var condition = Coercion.ToBoolean(a.Evaluate(0));
         if (condition.Kind == ValueKind.Error) return condition;
         int branch = condition.Boolean ? 1 : 2;
-        if (branch >= a.Count) return False;            // IF(c,t) with no third argument
-        if (a.IsOmitted(branch)) return Zero;            // IF(c,,f) and IF(c,t,)
+        if (branch >= a.Count || a.IsOmitted(branch))   // §7.2, R38: absent branch takes its default
+            return branch == 1 ? Zero : False;
         return a.Evaluate(branch);
     }
 

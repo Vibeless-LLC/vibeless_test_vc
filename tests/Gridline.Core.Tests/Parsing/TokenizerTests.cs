@@ -110,16 +110,38 @@ public class TokenizerTests
         => Assert.Equal([TokenKind.CellRef, TokenKind.Colon, TokenKind.CellRef, TokenKind.End], Kinds("A1:B2"));
 
     [Theory]
-    [InlineData("#N/A", "#N/A")]
-    [InlineData("#n/a", "#N/A")]
-    [InlineData("#div/0!", "#DIV/0!")]
-    [InlineData("#Name?", "#NAME?")]
-    [InlineData("#PARSE!", "#PARSE!")]
-    public void ErrorLiteralsAreNormalised(string src, string canonical)
+    [InlineData("#N/A")]
+    [InlineData("#DIV/0!")]
+    [InlineData("#NAME?")]
+    [InlineData("#VALUE!")]
+    [InlineData("#REF!")]
+    [InlineData("#NUM!")]
+    [InlineData("#CIRC!")]
+    [InlineData("#PARSE!")]
+    public void ErrorLiteralsWrittenExactly(string src)
     {
         var t = Ok(src)[0];
         Assert.Equal(TokenKind.Error, t.Kind);
-        Assert.Equal(canonical, t.Text);
+        Assert.Equal(src, t.Text);
+        Assert.Equal(src, t.Lexeme);
+    }
+
+    // R56 (§5.1, supersedes R52): any letter case matches one of the eight codes; the token carries the canonical
+    // upper-case code and the lexeme keeps the text as written.
+    [Theory]
+    [InlineData("#n/a", "#N/A")]
+    [InlineData("#div/0!", "#DIV/0!")]
+    [InlineData("#Name?", "#NAME?")]
+    [InlineData("#Parse!", "#PARSE!")]
+    [InlineData("#value!", "#VALUE!")]
+    [InlineData("#rEf!", "#REF!")]
+    [InlineData("#num!", "#NUM!")]
+    [InlineData("#circ!", "#CIRC!")]
+    public void ErrorLiteralInOtherCase_IsNormalisedToTheCanonicalCode_R56(string src, string code)
+    {
+        var t = Ok(src)[0];
+        Assert.Equal(TokenKind.Error, t.Kind);
+        Assert.Equal(code, t.Text);
         Assert.Equal(src, t.Lexeme);
     }
 
@@ -128,7 +150,74 @@ public class TokenizerTests
     [InlineData("#")]
     [InlineData("#N/AX")]
     [InlineData("#NULL!")]
+    [InlineData("#n/ax")]
+    [InlineData("#foo!")]
     public void UnknownErrorLiteralIsTokenizerError(string src) => Fails(src, 0);
+
+    // §5.5 printing writes "#N/A / 2" as "#N/A/2": a '/' may end an error literal and is then the divide operator.
+    [Theory]
+    [InlineData("#N/A/2", "#N/A")]
+    [InlineData("#DIV/0!/2", "#DIV/0!")]
+    [InlineData("#REF!/A1", "#REF!")]
+    [InlineData("#N/A/#N/A", "#N/A")]
+    [InlineData("#n/a/2", "#N/A")]          // R56: the bounded '/' backtrack also ignores case
+    [InlineData("#Div/0!/2", "#DIV/0!")]
+    [InlineData("#ref!/a1", "#REF!")]
+    public void ErrorLiteralEndsBeforeDivide(string src, string code)
+    {
+        var tokens = Ok(src);
+        Assert.Equal(TokenKind.Error, tokens[0].Kind);
+        Assert.Equal(code, tokens[0].Text);
+        Assert.Equal(src[..code.Length], tokens[0].Lexeme);
+        Assert.Equal(TokenKind.Slash, tokens[1].Kind);
+        Assert.Equal(code.Length, tokens[1].Position);
+    }
+
+    [Theory]
+    [InlineData("#N/AX/2")]
+    [InlineData("#n/ax/2")]
+    [InlineData("#DIV/2")]
+    [InlineData("#div/2")]
+    public void UnknownErrorLiteralBeforeDivideIsStillTokenizerError(string src) => Fails(src, 0);
+
+    // Security review (D-33): the '/' backtrack looks at most ErrorCodes.MaxLength characters and allocates nothing,
+    // so a maximum-length '#' + '/' run is linear, not O(n^2).
+    [Fact]
+    public void LongErrorLiteralRuns_TokenizeInLinearTime()
+    {
+        string slashes = "#" + new string('/', 32766);
+        string naTail = "#N/A" + new string('/', 32763);
+        string mixed = "#" + string.Concat(Enumerable.Repeat("A/", 16383));
+        string lowerNaTail = "#n/a" + new string('/', 32763); // R56: the case-insensitive backtrack stays bounded
+        Tokenizer.Tokenize(slashes); // warm up the JIT
+        Tokenizer.Tokenize(naTail);
+        Tokenizer.Tokenize(mixed);
+        Tokenizer.Tokenize(lowerNaTail);
+
+        long allocBefore = GC.GetAllocatedBytesForCurrentThread();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var r1 = Tokenizer.Tokenize(slashes);
+        var r2 = Tokenizer.Tokenize(naTail);
+        var r3 = Tokenizer.Tokenize(mixed);
+        var r4 = Tokenizer.Tokenize(lowerNaTail);
+        sw.Stop();
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocBefore;
+
+        Assert.False(r1.Success);
+        Assert.Equal(0, r1.ErrorPosition);
+        Assert.True(r1.ErrorMessage.Length < 100, "the error message echoes a clipped run");
+        Assert.True(r2.Success);
+        Assert.Equal(TokenKind.Error, r2.Tokens[0].Kind);
+        Assert.Equal("#N/A", r2.Tokens[0].Text);
+        Assert.Equal(32763, r2.Tokens.Count(t => t.Kind == TokenKind.Slash));
+        Assert.False(r3.Success);
+        Assert.True(r4.Success);
+        Assert.Equal("#N/A", r4.Tokens[0].Text);
+        Assert.Equal(32763, r4.Tokens.Count(t => t.Kind == TokenKind.Slash));
+        // Linear: the token list and a few strings (a few MB). The old per-k substring backtrack allocated about 1 GB.
+        Assert.True(allocated < 16 * 1024 * 1024, $"allocated {allocated} bytes");
+        Assert.True(sw.ElapsedMilliseconds < 150, $"took {sw.ElapsedMilliseconds} ms");
+    }
 
     [Fact]
     public void StringsAndDoubledQuotes()
@@ -169,7 +258,13 @@ public class TokenizerTests
         => Assert.Equal([TokenKind.Number, TokenKind.Name, TokenKind.End], Kinds("1e"));
 
     [Fact]
-    public void NonFiniteNumberIsError() => Fails("1e999", 0);
+    public void NonFiniteNumberTokenizes_R53()
+    {
+        var t = Ok("1e999")[0];
+        Assert.Equal(TokenKind.Number, t.Kind);
+        Assert.Equal(double.PositiveInfinity, t.Number);
+        Assert.Equal("1e999", t.Lexeme);                                  // kept for §5.5 printing
+    }
 
     [Fact]
     public void AllOperatorsAndPunctuation()

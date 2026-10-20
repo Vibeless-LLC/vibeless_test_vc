@@ -6,7 +6,7 @@ public class CellValueTests
     [Fact]
     public void ErrorCodes_AreExact()
     {
-        Assert.Equal("#DIV/0!", ErrorCodes.DivZero);
+        Assert.Equal("#DIV/0!", ErrorCodes.Div0);
         Assert.Equal("#N/A", ErrorCodes.NA);
         Assert.Equal("#NAME?", ErrorCodes.Name);
         Assert.Equal("#NUM!", ErrorCodes.Num);
@@ -16,17 +16,31 @@ public class CellValueTests
         Assert.Equal("#PARSE!", ErrorCodes.Parse);
     }
 
+    // The public membership test is exact (CellValue.FromError takes canonical codes); formula literals are matched
+    // ignoring case by the tokenizer (R56, ErrorCodes.TryGetCanonical) and normalised before they get here.
+    [Theory]
+    [InlineData("#div/0!")]
+    [InlineData("#N/a")]
+    [InlineData("#Parse!")]
+    public void ErrorCodes_IsKnown_IsCaseSensitive(string input) => Assert.False(ErrorCodes.IsKnown(input));
+
     [Theory]
     [InlineData("#div/0!", "#DIV/0!")]
     [InlineData("#N/a", "#N/A")]
     [InlineData("#Parse!", "#PARSE!")]
-    public void ErrorCodes_TryGetCanonical_NormalisesCase(string input, string expected)
+    [InlineData("#NAME?", "#NAME?")]
+    public void ErrorCodes_TryGetCanonical_IgnoresCase_R56(string input, string expected)
     {
-        Assert.True(ErrorCodes.TryGetCanonical(input, out var canonical));
-        Assert.Equal(expected, canonical);
-        Assert.False(ErrorCodes.TryGetCanonical("#null!", out _));
-        Assert.False(ErrorCodes.TryGetCanonical(null, out _));
+        Assert.True(ErrorCodes.TryGetCanonical(input, out string code));
+        Assert.Equal(expected, code);
     }
+
+    [Theory]
+    [InlineData("#N/AX")]
+    [InlineData("#FOO!")]
+    [InlineData("#")]
+    [InlineData("#DIV/0!!")]
+    public void ErrorCodes_TryGetCanonical_RejectsUnknownCodes(string input) => Assert.False(ErrorCodes.TryGetCanonical(input, out _));
 
     [Fact]
     public void ErrorCodes_IsKnown()
@@ -119,7 +133,7 @@ public class CellValueTests
     [Fact]
     public void Error_Canonical()
     {
-        var v = CellValue.FromError(ErrorCodes.DivZero);
+        var v = CellValue.FromError(ErrorCodes.Div0);
         Assert.Equal(ValueKind.Error, v.Kind);
         Assert.Equal("#DIV/0!", v.Error);
         Assert.Equal("E:#DIV/0!", v.ToCanonicalString());
@@ -132,13 +146,54 @@ public class CellValueTests
         Assert.Throws<ArgumentException>(() => CellValue.FromError(null!));
     }
 
-    [Fact]
-    public void WrongKindAccessors_Throw()
+    // §9.1: each payload accessor returns its default unless Kind matches; it never throws.
+    public static TheoryData<CellValue> EveryKind => new()
     {
-        Assert.Throws<InvalidOperationException>(() => CellValue.Blank.Number);
-        Assert.Throws<InvalidOperationException>(() => CellValue.FromNumber(1).Text);
-        Assert.Throws<InvalidOperationException>(() => CellValue.FromText("x").Boolean);
-        Assert.Throws<InvalidOperationException>(() => CellValue.FromBoolean(true).Error);
+        CellValue.Blank,
+        default(CellValue),
+        CellValue.FromNumber(7.5),
+        CellValue.FromText("hi"),
+        CellValue.FromBoolean(true),
+        CellValue.FromError(ErrorCodes.Div0),
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void Number_Is0UnlessNumber(CellValue v)
+    {
+        Assert.Equal(v.Kind == ValueKind.Number ? 7.5 : 0, v.Number);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void Text_IsEmptyUnlessText(CellValue v)
+    {
+        Assert.Equal(v.Kind == ValueKind.Text ? "hi" : "", v.Text);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void Boolean_IsFalseUnlessBoolean(CellValue v)
+    {
+        Assert.Equal(v.Kind == ValueKind.Boolean, v.Boolean);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void Error_IsEmptyUnlessError(CellValue v)
+    {
+        Assert.Equal(v.Kind == ValueKind.Error ? "#DIV/0!" : "", v.Error);
+    }
+
+    [Fact]
+    public void Accessors_DefaultsForFalsyPayloads()
+    {
+        // A FALSE boolean, a zero number and empty text are distinguishable from the defaults only through Kind.
+        Assert.False(CellValue.FromBoolean(false).Boolean);
+        Assert.Equal(0, CellValue.FromNumber(-0.0).Number);
+        Assert.Equal("", CellValue.FromText("").Text);
+        Assert.Equal("", CellValue.FromText("").Error);
+        Assert.Equal(0, CellValue.FromError(ErrorCodes.Num).Number);
     }
 
     [Fact]

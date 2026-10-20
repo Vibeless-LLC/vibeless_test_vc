@@ -78,3 +78,33 @@ public class UsesOnlyFileSystemInfo { public bool E(FileSystemInfo i) => i.Exist
 public class UsesOnlyConsoleColor { public ConsoleColor C() => ConsoleColor.Red; }
 // Uses none of File, Directory, FileStream or Console (Path and StringBuilder are other System.IO / System types).
 public class UsesNeitherForbidden { public string P() => Path.Combine("a", "b") + new System.Text.StringBuilder().Append('x'); }
+
+// §3.2 App row: App MUST NOT depend on Cli. (ExitCodes members are consts and would be inlined, so typeof is used.)
+public class UsesCli { public Type P() => typeof(Gridline.Cli.ExitCodes); }
+// Uses only what App may use: Core, IO and WPF.
+public class UsesCoreIoAndWpf
+{
+    public object P() => (new Gridline.Core.Workbook(), typeof(Gridline.IO.GridlineFile), new System.Windows.Controls.TextBox());
+}
+
+// R42 (§3.3): WPF identifier registrations are allowed ...
+public class R42Identifiers : System.Windows.DependencyObject
+{
+    public static readonly System.Windows.DependencyProperty ValueProperty =
+        System.Windows.DependencyProperty.Register("Value", typeof(int), typeof(R42Identifiers));
+    public static readonly System.Windows.RoutedEvent PokedEvent =
+        System.Windows.EventManager.RegisterRoutedEvent("Poked", System.Windows.RoutingStrategy.Bubble, typeof(System.Windows.RoutedEventHandler), typeof(R42Identifiers));
+    public static readonly System.Windows.Input.RoutedUICommand PokeCommand = new("Poke", "Poke", typeof(R42Identifiers));
+}
+
+// ... but genuine mutable WPF statics are not.
+public class BadWpfStatics
+{
+    public static System.Windows.DependencyProperty NotReadonlyProperty =
+        System.Windows.DependencyProperty.Register("NotReadonly", typeof(int), typeof(BadWpfStatics));
+    public static readonly System.Windows.Media.SolidColorBrush SharedBrush = new();
+    public static System.Windows.Media.Pen SharedPenProp { get; } = new();
+    public static readonly List<System.Windows.DependencyProperty> Registry = [];
+    public static System.Windows.Input.RoutedUICommand SettableCommand { get; set; } = new();
+    public static readonly System.Windows.Input.RoutedCommand PlainRoutedCommand = new(); // not one of the three R42 types
+}

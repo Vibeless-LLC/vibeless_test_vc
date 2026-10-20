@@ -51,7 +51,7 @@ internal static class StrictLoader
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? problem = null;
-        bool formatOk = false, hasFormat = false, hasVersion = false, hasNames = false, namesNonEmpty = false, hasCells = false;
+        bool formatOk = false, hasFormat = false, hasVersion = false, namesNonEmpty = false, hasCells = false;
         long version = 0;
         bool versionHuge = false;
         Utf8JsonReader cellsReader = default;
@@ -81,17 +81,19 @@ internal static class StrictLoader
                     }
                     else
                     {
+                        // R54 (§8.2): any integral JSON number is an integer, so 1.0 and 1e0 are version 1; 1.5 is not.
                         var raw = reader.ValueSpan;
-                        if (raw.IndexOfAny((byte)'.', (byte)'e', (byte)'E') >= 0)
-                            problem ??= "\"version\" must be an integer.";
-                        else if (reader.TryGetInt64(out long v)) version = v;
-                        else if (raw.Length > 0 && raw[0] == (byte)'-') problem ??= "\"version\" must be 1.";
-                        else versionHuge = true; // an integer too large for Int64 is certainly above 1
+                        if (reader.TryGetInt64(out long v)) version = v;
+                        else if (!reader.TryGetDouble(out double d) || !double.IsFinite(d))
+                            versionHuge = raw.Length > 0 && raw[0] != (byte)'-'; // beyond double range
+                        else if (d != Math.Floor(d)) problem ??= "\"version\" must be an integer.";
+                        else if (d > 1) versionHuge = true;
+                        else if (d < 1) problem ??= "\"version\" must be 1.";
+                        else version = 1;
                     }
                     break;
 
                 case "names":
-                    hasNames = true;
                     if (reader.TokenType == JsonTokenType.StartObject)
                     {
                         // Phase 1 has no names (R26): only an empty object is accepted; syntax and duplicates are still checked.
@@ -134,11 +136,10 @@ internal static class StrictLoader
         if (!hasVersion) throw Fail("\"version\" is missing.");
         if (problem is not null) throw Fail(problem);
         if (version < 1) throw Fail("\"version\" must be 1.");
-        if (!hasNames) throw Fail("\"names\" is missing.");
+        // R54 (§8.2): a missing "names" or "cells" key counts as empty.
         if (namesNonEmpty) throw Fail("non-empty \"names\" are not supported by this version.");
-        if (!hasCells) throw Fail("\"cells\" is missing.");
 
-        var cells = ReadCells(ref cellsReader);
+        var cells = hasCells ? ReadCells(ref cellsReader) : [];
         try
         {
             return Workbook.FromCells(cells);
@@ -169,9 +170,11 @@ internal static class StrictLoader
             if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
                 throw Fail($"cell entry {index} must have exactly two elements.");
 
-            if (!CellAddress.TryParse(address, out var parsed) || !string.Equals(parsed.ToString(), address, StringComparison.Ordinal))
-                throw Fail($"cell entry {index}: \"{address}\" is not a canonical cell address.");
-            if (input.Length == 0) throw Fail($"cell {address} has an empty input.");
+            // §8.2/§4.2: any valid address is accepted (case-insensitive, optional `$`); FromCells stores it canonically
+            // and rejects duplicates compared canonically (so "A1" and "a1" are duplicates).
+            if (!CellAddress.TryParse(address, out _))
+                throw Fail($"cell entry {index}: \"{address}\" is not a valid cell address.");
+            // R54 (§8.2): an empty input is a blank cell; FromCells skips it but still counts it for duplicates.
             if (input.Length > Workbook.MaxInputLength) throw Fail($"cell {address} input exceeds {Workbook.MaxInputLength} characters.");
 
             cells.Add(new KeyValuePair<string, string>(address, input));

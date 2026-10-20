@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <InternalsVisibleTo Include="Gridline.Core.Tests" />
+    <!-- Workbook.UsedCellCount (O(1)) for the App's SelectionSummary strategy choice; not part of the §9.1 surface. -->
+    <InternalsVisibleTo Include="Gridline.App" />
   </ItemGroup>
 </Project>

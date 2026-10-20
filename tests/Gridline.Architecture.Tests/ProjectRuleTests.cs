@@ -2,8 +2,7 @@ using static Gridline.Architecture.Tests.ArchSupport;
 
 namespace Gridline.Architecture.Tests;
 
-/// <summary>§3.2 project dependency rules. There is no Gridline.App project yet (see DECISIONS D-29);
-/// the App rules are added when it exists.</summary>
+/// <summary>§3.2 project dependency rules (DECISIONS D-29, D-37).</summary>
 public class ProjectRuleTests
 {
     // §3.2: Core MUST NOT reference any other Gridline project.
@@ -83,15 +82,35 @@ public class ProjectRuleTests
         Assert.True(r.IsSuccessful, Describe(r));
     }
 
-    // §2: src assemblies reference only the BCL and each other (no third-party packages).
+    // §3.2: App may reference Core and IO.
+    [Fact]
+    public void S3_2_App_ReferencesOnlyCoreAndIO()
+    {
+        Assert.Equal(["Gridline.Core", "Gridline.IO"], ProjectReferences("Gridline.App"));
+        Assert.Empty(PackageReferences("Gridline.App"));
+        Assert.Empty(DisallowedGridlineReferences(AppAsm, AppAllowedGridline));
+    }
+
+    // §3.2: App MUST NOT depend on Cli.
+    [Fact]
+    public void S3_2_App_DoesNotDependOnCli()
+    {
+        var r = AppMustNotDependOnCli(AppAsm);
+        Assert.True(r.IsSuccessful, Describe(r));
+    }
+
+    // §2 (D-37): Core, IO and Cli reference only Gridline assemblies and the BCL (Microsoft.NETCore.App); App may also
+    // reference the WPF assemblies of Microsoft.WindowsDesktop.App, and nothing else (no packages, no WinForms).
     [Fact]
     public void S2_SrcAssemblies_ReferenceOnlyBclAndGridline()
     {
-        foreach (var asm in AllSrc)
-            foreach (var name in asm.GetReferencedAssemblies().Select(a => a.Name!))
-                Assert.True(
-                    name.StartsWith("System", StringComparison.Ordinal) || name is "mscorlib" or "netstandard" or "Microsoft.Win32.Primitives"
-                    || name.StartsWith("Gridline", StringComparison.Ordinal),
-                    $"{asm.GetName().Name} references {name}");
+        foreach (var asm in new[] { CoreAsm, IOAsm, CliAsm })
+            Assert.Empty(NonBclReferences(asm, allowWpf: false));
+        Assert.Empty(NonBclReferences(AppAsm, allowWpf: true));
     }
+
+    // Non-vacuous: App really references WPF, which the non-App rule would reject.
+    [Fact]
+    public void S2_App_UsesWpf_WhichOnlyTheAppRuleAllows() =>
+        Assert.Contains(NonBclReferences(AppAsm, allowWpf: false), s => s.Contains("PresentationFramework"));
 }
