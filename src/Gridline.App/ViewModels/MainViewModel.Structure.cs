@@ -74,8 +74,11 @@ public sealed partial class MainViewModel : IGridHeaderSource
             return false;
         }
         // The copied range's addresses no longer name the cells that were copied (§11.6, R47). CellsChanged has already
-        // repainted and refreshed the bars, title and dirty marker; the selection and active cell stay where they are.
+        // repainted and refreshed the bars when a value or input moved; the selection and active cell stay where they are.
         ForgetInternalCopy();
+        // An edit that only adjusts names raises no CellsChanged (§9.2, R63, R64) but is still an undo step, so the title's
+        // " *" and Undo/Redo availability are refreshed explicitly, as Undo() and Redo() do (§11.1).
+        RefreshDocumentState();
         return true;
     }
 

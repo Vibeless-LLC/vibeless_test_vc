@@ -246,6 +246,47 @@ public sealed class StructureCommandTests
     }
 
     [Fact]
+    public void ANamesOnlyEdit_RaisesNoCellsChanged_ButRefreshesTheTitleAndUndo()
+    {
+        // I-1 (§11.1, §9.3): cells only in row 1 and N=$A$100; inserting at row 50 moves no input and rewrites no
+        // formula, so Core raises no CellsChanged (§9.2, R63, R64), yet N becomes $A$101 and the step is undoable.
+        string dir = NewTempDirectory();
+        try
+        {
+            string path = Path.Combine(dir, "named.gridline");
+            var source = Workbook.FromCells([new("A1", "1"), new("B1", "x")]);
+            source.DefineName("N", "$A$100");
+            Gridline.IO.GridlineFile.SaveToPath(source, path);
+            Assert.True(_vm.OpenAtStartup(path));
+            Assert.Equal("Gridline - named.gridline", _vm.Title);
+            Assert.False(_vm.UndoCommand.CanExecute(null));
+            var changed = new List<string?>();
+            _vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+            int undoCanExecuteChanged = 0, cellsChanged = 0;
+            _vm.UndoCommand.CanExecuteChanged += (_, _) => undoCanExecuteChanged++;
+            _vm.Workbook.CellsChanged += (_, _) => cellsChanged++;
+            _vm.SelectHeaders(HeaderAxis.Rows, 50, 1, extend: false);
+            changed.Clear();
+
+            Assert.True(_vm.InsertSelected());
+
+            Assert.Equal(0, cellsChanged);
+            Assert.Equal("$A$101", Assert.Single(_vm.Workbook.GetNames()).Value);
+            Assert.True(_vm.IsDirty);
+            Assert.Equal("Gridline - named.gridline *", _vm.Title);
+            Assert.Contains(nameof(MainViewModel.Title), changed);
+            Assert.Contains(nameof(MainViewModel.IsDirty), changed);
+            Assert.True(undoCanExecuteChanged > 0);
+            Assert.True(_vm.UndoCommand.CanExecute(null));
+
+            _vm.UndoCommand.Execute(null);
+            Assert.Equal("$A$100", Assert.Single(_vm.Workbook.GetNames()).Value);
+            Assert.Equal("Gridline - named.gridline", _vm.Title);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void AStructureEdit_ForgetsTheInternalCopy()
     {
         var clipboard = new FakeClipboardService();
