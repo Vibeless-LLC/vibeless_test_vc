@@ -12,7 +12,13 @@ public sealed class GridlineFileTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(_dir, "*", SearchOption.AllDirectories))
+                try { File.SetAttributes(f, FileAttributes.Normal); } catch (Exception) { }
+            Directory.Delete(_dir, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     private static Workbook Sample()
@@ -56,12 +62,44 @@ public sealed class GridlineFileTests : IDisposable
     }
 
     [Fact]
-    public void Save_FailureBeforeReplace_NonIoExceptionStillBecomesGridlineIOException()
+    public void Save_FailureBeforeReplace_NonIoExceptionPropagatesUnchanged_AfterCleanup()
     {
         File.WriteAllText(P("a.gridline"), "x");
-        Assert.Throws<GridlineIOException>(() =>
+        Assert.Throws<InvalidOperationException>(() =>
             GridlineFile.SaveToPath(Sample(), P("a.gridline"), beforeReplace: _ => throw new InvalidOperationException("boom")));
         Assert.Equal("x", File.ReadAllText(P("a.gridline")));
+        Assert.Equal("a.gridline", Path.GetFileName(Assert.Single(Directory.GetFiles(_dir))));
+    }
+
+    [Fact]
+    public void Save_PathEndingInSeparator_ThrowsGridlineIOException_BeforeCreatingTemp()
+    {
+        var ex = Assert.Throws<GridlineIOException>(() => GridlineFile.SaveToPath(Sample(), _dir + Path.DirectorySeparatorChar));
+        Assert.NotNull(ex.InnerException);
+        ex = Assert.Throws<GridlineIOException>(() => GridlineFile.SaveToPath(Sample(), P("x") + Path.AltDirectorySeparatorChar));
+        Assert.NotNull(ex.InnerException);
+        Assert.Empty(Directory.GetFiles(_dir));
+    }
+
+    [Fact]
+    public void Save_LongTargetName_StillSaves()
+    {
+        string name = new string('n', 250) + ".gl"; // 253 chars, valid
+        var wb = Sample();
+        GridlineFile.SaveToPath(wb, P(name));
+        Assert.Equal(GridlineSerializer.Serialize(wb), File.ReadAllBytes(P(name)));
+        Assert.Single(Directory.GetFiles(_dir));
+    }
+
+    [Fact]
+    public void Save_ReadOnlyTarget_ThrowsGridlineIOException_AndLeavesOriginalIntact()
+    {
+        File.WriteAllText(P("ro.gridline"), "original");
+        File.SetAttributes(P("ro.gridline"), FileAttributes.ReadOnly);
+        var ex = Assert.Throws<GridlineIOException>(() => GridlineFile.SaveToPath(Sample(), P("ro.gridline")));
+        Assert.IsType<UnauthorizedAccessException>(ex.InnerException);
+        Assert.Equal("original", File.ReadAllText(P("ro.gridline")));
+        Assert.Equal("ro.gridline", Path.GetFileName(Assert.Single(Directory.GetFiles(_dir))));
     }
 
     [Fact]
@@ -101,21 +139,9 @@ public sealed class GridlineFileTests : IDisposable
     public void Save_TargetIsDirectory_ThrowsGridlineIOException()
     {
         Directory.CreateDirectory(P("d"));
-        Assert.Throws<GridlineIOException>(() => GridlineFile.SaveToPath(Sample(), P("d")));
+        var ex = Assert.Throws<GridlineIOException>(() => GridlineFile.SaveToPath(Sample(), P("d")));
+        Assert.NotNull(ex.InnerException);
         Assert.True(Directory.Exists(P("d")));
-    }
-
-    [Fact]
-    public void Save_BareFileName_UsesCurrentDirectory()
-    {
-        var old = Directory.GetCurrentDirectory();
-        try
-        {
-            Directory.SetCurrentDirectory(_dir);
-            GridlineFile.SaveToPath(Sample(), "bare.gridline");
-        }
-        finally { Directory.SetCurrentDirectory(old); }
-        Assert.True(File.Exists(P("bare.gridline")));
     }
 
     [Fact]

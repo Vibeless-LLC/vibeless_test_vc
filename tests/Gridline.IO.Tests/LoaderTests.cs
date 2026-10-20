@@ -106,6 +106,7 @@ public class LoaderTests
     [Fact] public void Fail_VersionMissing() => Bad("{\"format\":\"gridline\",\"names\":{},\"cells\":[]}");
     [Fact] public void Fail_VersionString() => Bad(Doc(version: "\"1\""));
     [Fact] public void Fail_VersionFractional() => Bad(Doc(version: "1.5"));
+    [Fact] public void Fail_VersionExponentForm_R28() => Bad(Doc(version: "1e0"));
     [Fact] public void Fail_VersionDecimalOne() => Bad(Doc(version: "1.0"));
     [Fact] public void Fail_VersionZero() => Bad(Doc(version: "0"));
     [Fact] public void Fail_VersionNegative() => Bad(Doc(version: "-1"));
@@ -135,7 +136,7 @@ public class LoaderTests
     [Fact] public void Fail_AddressRange() => Bad(Doc("[[\"A1:B2\",\"1\"]]"));
     [Fact] public void Fail_AddressRowZero() => Bad(Doc("[[\"A0\",\"1\"]]"));
     [Fact] public void Fail_AddressRowTooLarge() => Bad(Doc("[[\"A100001\",\"1\"]]"));
-    [Fact] public void Fail_AddressColumnTooLarge() => Bad(Doc("[[\"AAA1\",\"1\"]]"));
+    [Fact] public void Fail_AddressColumnTooLarge() => Bad(Doc("[[\"XFD1\",\"1\"]]"));
     [Fact] public void Fail_AddressColumnJustPastZZ() => Bad(Doc("[[\"AAA1\",\"1\"]]"));
     [Fact] public void Fail_AddressDuplicate() => Bad(Doc("[[\"A1\",\"1\"],[\"B1\",\"2\"],[\"A1\",\"3\"]]"));
     [Fact] public void Fail_InputEmpty() => Bad(Doc("[[\"A1\",\"\"]]"));
@@ -178,7 +179,7 @@ public class LoaderTests
     }
 
     [Fact]
-    public void Fail_FormulaStillLoads_AsParseError_NotFormatError()
+    public void SyntacticallyBadFormula_LoadsAsStoredInput_NotFormatError()
     {
         // A syntactically bad formula is valid file content (§4.3: stored, evaluates to #PARSE!).
         var wb = Load(Doc("[[\"A1\",\"=1+\"]]"));
@@ -195,7 +196,7 @@ public class LoaderTests
     }
 
     [Fact]
-    public void Load_RunsFullRecalc_AndHasNoUndoOrDirtyState()
+    public void Load_RunsFullRecalc_ValuesAndEvaluatedCountAreCorrect()
     {
         var wb = Load(Doc("[[\"A1\",\"2\"],[\"A2\",\"=A1*3\"],[\"A3\",\"=A2+A1\"]]"));
         Assert.Equal(8.0, wb.GetValue("A3").Number);
