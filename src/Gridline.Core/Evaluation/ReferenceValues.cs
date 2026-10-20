@@ -31,6 +31,16 @@ public readonly struct ReferenceValues
     /// <summary>Number of cells in the range.</summary>
     public long Count => Range.CellCount;
 
+    /// <summary>Number of rows in the range.</summary>
+    public int Rows => Range.BottomRight.Row - Range.TopLeft.Row + 1;
+
+    /// <summary>Number of columns in the range.</summary>
+    public int Columns => Range.BottomRight.Column - Range.TopLeft.Column + 1;
+
+    /// <summary>The value at a 0-based offset from the range's top-left cell (random access, for lookups).</summary>
+    public CellValue ValueAt(int rowOffset, int columnOffset) =>
+        _provider.GetValue(new CellAddress(Range.TopLeft.Column + columnOffset, Range.TopLeft.Row + rowOffset));
+
     public Enumerator GetEnumerator() => new(_provider, Range);
 
     /// <summary>Row-major enumerator over <see cref="ReferenceValues"/>.</summary>

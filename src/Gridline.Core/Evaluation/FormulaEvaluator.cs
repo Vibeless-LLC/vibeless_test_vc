@@ -1,3 +1,4 @@
+using Gridline.Core.Addressing;
 using Gridline.Core.Parsing;
 
 namespace Gridline.Core.Evaluation;
@@ -20,13 +21,14 @@ public static class FormulaEvaluator
     /// </summary>
     /// <param name="functions">Function lookup; null means no functions (every call is #NAME?).</param>
     /// <param name="names">Name lookup; null means no names are defined (every name is #NAME?).</param>
+    /// <param name="currentCell">The cell that owns the formula, for ROW() and COLUMN() without an argument (§7.4).</param>
     public static CellValue Evaluate(ParsedFormula formula, ICellValueProvider cells, IFunctionResolver? functions = null,
-        INameResolver? names = null)
+        INameResolver? names = null, CellAddress? currentCell = null)
     {
         ArgumentNullException.ThrowIfNull(formula);
         ArgumentNullException.ThrowIfNull(cells);
         if (!formula.Success) return Errors.Parse;
-        var value = new EvaluationContext(cells, functions, names).EvaluateScalar(formula.Root!);
+        var value = new EvaluationContext(cells, functions, names, currentCell).EvaluateScalar(formula.Root!);
         return value.Kind == ValueKind.Blank ? CellValue.FromNumber(0) : value;
     }
 }
@@ -43,7 +45,8 @@ internal static class Errors
 }
 
 /// <summary>One evaluation's working state: explicit work and value stacks shared by nested argument evaluations.</summary>
-internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResolver? functions, INameResolver? names = null)
+internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResolver? functions, INameResolver? names = null,
+    CellAddress? currentCell = null)
 {
     private struct Frame
     {
@@ -57,6 +60,8 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
     private int _valueCount;
 
     internal ICellValueProvider Cells { get; } = cells;
+
+    internal CellAddress? CurrentCell { get; } = currentCell;
 
     /// <summary>Resolves a name (§9.6); false when no resolver is present or the name is undefined.</summary>
     internal bool TryResolveName(string name, out NameTarget target)

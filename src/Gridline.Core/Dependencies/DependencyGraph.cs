@@ -278,7 +278,7 @@ public sealed class DependencyGraph
             for (int k = start; k < end; k++)
             {
                 int n = order[k];
-                var value = cyclic ? circ : FormulaEvaluator.Evaluate(formulas[n], target, functions, target);
+                var value = cyclic ? circ : FormulaEvaluator.Evaluate(formulas[n], target, functions, target, addresses[n]);
                 var address = addresses[n];
                 if (target.GetValue(address) != value) changedCells.Add(address);
                 target.SetComputedValue(address, value);

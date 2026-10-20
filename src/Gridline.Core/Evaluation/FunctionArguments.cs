@@ -9,6 +9,8 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
 {
     private bool _valid = true;
 
+    public CellAddress? CurrentCell => context.CurrentCell;
+
     public int Count { get { EnsureValid(); return nodes.Count; } }
 
     public bool IsOmitted(int index) => Node(index) is OmittedArgNode;

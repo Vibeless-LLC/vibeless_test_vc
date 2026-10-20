@@ -1,3 +1,5 @@
+using Gridline.Core.Addressing;
+
 namespace Gridline.Core.Evaluation;
 
 /// <summary>
@@ -9,6 +11,10 @@ namespace Gridline.Core.Evaluation;
 /// </summary>
 public interface IFunctionArguments
 {
+    /// <summary>The address of the cell whose formula is being evaluated (ROW(), COLUMN() with no argument, §7.4); null when
+    /// the evaluation has no owning cell.</summary>
+    CellAddress? CurrentCell { get; }
+
     /// <summary>Number of arguments as written, omitted ones included (<c>F(1,)</c> has 2, <c>F()</c> has 0).</summary>
     int Count { get; }
 

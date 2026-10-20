@@ -236,69 +236,10 @@ internal static class TextFunctions
 
         int index;
         if (wildcards)
-            index = WildcardSearch(find.ToUpperInvariant(), within.ToUpperInvariant(), from);
+            index = WildcardMatcher.Search(find.ToUpperInvariant(), within.ToUpperInvariant(), from);
         else
             index = within.IndexOf(find, from, StringComparison.Ordinal);
         return index < 0 ? ValueError : CellValue.FromNumber(index + 1);
-    }
-
-    private enum Kind : byte { Literal, AnyOne, Star }
-
-    private readonly record struct Token(Kind Kind, char Char);
-
-    /// <summary>Zero-based index of the first match of <paramref name="pattern"/> at or after <paramref name="from"/>, or -1.</summary>
-    private static int WildcardSearch(string pattern, string text, int from)
-    {
-        // Tokenise (§7.3): ~ escapes the next character, whatever it is; a trailing lone ~ stands for itself.
-        var tokens = new List<Token>(pattern.Length);
-        for (int i = 0; i < pattern.Length; i++)
-        {
-            char c = pattern[i];
-            if (c == '~' && i + 1 < pattern.Length)
-                tokens.Add(new Token(Kind.Literal, pattern[++i]));
-            else if (c == '*') tokens.Add(new Token(Kind.Star, c));
-            else if (c == '?') tokens.Add(new Token(Kind.AnyOne, c));
-            else tokens.Add(new Token(Kind.Literal, c));
-        }
-
-        // Split on stars into non-empty segments.
-        var segments = new List<Token[]>();
-        var current = new List<Token>();
-        bool leadingStar = tokens.Count > 0 && tokens[0].Kind == Kind.Star;
-        foreach (var t in tokens)
-        {
-            if (t.Kind == Kind.Star)
-            {
-                if (current.Count > 0) { segments.Add([.. current]); current.Clear(); }
-            }
-            else current.Add(t);
-        }
-        if (current.Count > 0) segments.Add([.. current]);
-
-        if (segments.Count == 0) return from;           // "" or only stars: matches at the start position
-
-        int pos = from;
-        int firstIndex = from;
-        for (int s = 0; s < segments.Count; s++)
-        {
-            int at = FindSegment(segments[s], text, pos);
-            if (at < 0) return -1;                       // leftmost placement failed, so every later one fails too
-            if (s == 0) firstIndex = at;
-            pos = at + segments[s].Length;
-        }
-        return leadingStar ? from : firstIndex;
-    }
-
-    private static int FindSegment(Token[] segment, string text, int from)
-    {
-        int last = text.Length - segment.Length;
-        for (int p = from; p <= last; p++)
-        {
-            int k = 0;
-            while (k < segment.Length && (segment[k].Kind == Kind.AnyOne || segment[k].Char == text[p + k])) k++;
-            if (k == segment.Length) return p;
-        }
-        return -1;
     }
 
     private static CellValue Substitute(IFunctionArguments a)
