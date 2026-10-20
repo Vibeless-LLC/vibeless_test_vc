@@ -78,7 +78,39 @@ public class LookupFunctionTests
         for (int i = 1; i <= 1000; i++) { t.Set($"A{i}", i * 2); t.Set($"B{i}", i); }
         for (int v = 2; v <= 2000; v += 7) Assert.Equal(N(v / 2), Run($"VLOOKUP({v},A1:B1000,2)", t));
         Assert.Equal(N(500), Run("VLOOKUP(1001,A1:B1000,2)", t));
-        Assert.True(t.Reads < 100_000);
+        t.ResetReads();
+        Assert.Equal(N(500), Run("VLOOKUP(1001,A1:B1000,2)", t));
+        Assert.True(t.Reads <= 2 * 10 + 2, $"{t.Reads} reads");        // O(log n): about 10 probes plus the result cell
+    }
+
+    [Fact]
+    public void Approximate_DuplicateKeys_PickTheLast()
+    {
+        var t = new DictionaryCells().Set("A1", 1).Set("A2", 3).Set("A3", 3).Set("A4", 5)
+            .Set("B1", "p").Set("B2", "q").Set("B3", "r").Set("B4", "s");
+        Assert.Equal(T("r"), Run("VLOOKUP(3,A1:B4,2)", t));
+        Assert.Equal(N(3), Run("MATCH(3,A1:A4)", t));
+        Assert.Equal(N(3), Run("MATCH(4,A1:A4,1)", t));
+        var d = new DictionaryCells().Set("A1", 9).Set("A2", 5).Set("A3", 5).Set("A4", 1);
+        Assert.Equal(N(3), Run("MATCH(5,A1:A4,-1)", d));
+        Assert.Equal(N(3), Run("MATCH(4,A1:A4,-1)", d));
+        Assert.Equal(N(2), Run("MATCH(5,A1:A4,0)", d));                 // exact still takes the first
+    }
+
+    [Fact]
+    public void Approximate_BlankKeysAdaptLikeSection63()
+    {
+        // ValueComparer: a blank key compares as 0 against a number, "" against text, FALSE against a boolean.
+        var t = new DictionaryCells().Set("A1", -5).Set("A3", 3).Set("B1", "r1").Set("B2", "r2").Set("B3", "r3");
+        Assert.Equal(T("r2"), Run("VLOOKUP(1,A1:B3,2)", t));            // blank A2 acts as 0 <= 1
+        Assert.Equal(T("r2"), Run("VLOOKUP(0,A1:B3,2)", t));
+        Assert.Equal(T("r2"), Run("VLOOKUP(Z9,A1:B3,2)", t));           // blank lookup value is 0 (R66)
+        Assert.Equal(T("r1"), Run("VLOOKUP(-1,A1:B3,2)", t));
+        Assert.Equal(N(2), Run("MATCH(1,A1:A3)", t));
+        Assert.Equal(N(2), Run("MATCH(Z9,A1:A3)", t));
+        Assert.Equal(N(2), Run("MATCH(Z9,A1:A2,-1)", new DictionaryCells().Set("A1", 5).Set("A2", 0)));
+        var txt = new DictionaryCells().Set("A1", "a").Set("A3", "c");
+        Assert.Equal(N(2), Run("MATCH(\"\",A1:A3,1)", txt));            // the blank key acts as "" and equals "" ("a" is greater)
     }
 
     [Fact]
@@ -402,7 +434,8 @@ public class LookupFunctionTests
         Assert.Equal(Run("IF(TRUE,A1:A2)", t), Run("CHOOSE(1,A1:A2,0)", t));
         Assert.Equal(Run("IF(TRUE,A1:A1)", t), Run("CHOOSE(1,A1:A1,0)", t));
         Assert.Equal(N(0), Run("CHOOSE(2,1,Z9)", t));                  // blank cell -> 0 at top level
-        Assert.Equal(N(0), Run("CHOOSE(2,1,)", t));                    // omitted chosen argument -> 0, as IF's omitted branch
+        Assert.Equal(Val, Run("CHOOSE(2,1,)", t));                     // omitted chosen argument: no default, #VALUE! (R38)
+        Assert.Equal(N(1), Run("CHOOSE(1,1,)", t));                    // an omitted argument not chosen is harmless
     }
 
     // ---- ROW / COLUMN / ROWS / COLUMNS ----

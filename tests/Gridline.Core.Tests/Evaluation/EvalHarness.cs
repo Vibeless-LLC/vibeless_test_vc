@@ -10,6 +10,7 @@ internal sealed class DictionaryCells : ICellValueProvider
 {
     private readonly Dictionary<CellAddress, CellValue> _cells = new();
     public int Reads { get; private set; }
+    public void ResetReads() => Reads = 0;
 
     public DictionaryCells Set(string address, CellValue value)
     {

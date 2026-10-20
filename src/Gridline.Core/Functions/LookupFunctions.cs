@@ -89,19 +89,19 @@ internal static class LookupFunctions
 
     // ---- matching ----
 
-    /// <summary>Exact-mode equality (R66); <paramref name="pattern"/> is the upper-cased lookup text when it is text.</summary>
-    private static bool ExactEquals(CellValue key, CellValue v, string? pattern) => v.Kind switch
+    /// <summary>Exact-mode equality (R66); <paramref name="pattern"/> is the compiled upper-cased lookup text when it is text.</summary>
+    private static bool ExactEquals(CellValue key, CellValue v, WildcardMatcher.Compiled? pattern) => v.Kind switch
     {
         ValueKind.Number => key.Kind == ValueKind.Number && key.Number == v.Number,
         ValueKind.Boolean => key.Kind == ValueKind.Boolean && key.Boolean == v.Boolean,
-        ValueKind.Text => key.Kind == ValueKind.Text && WildcardMatcher.IsMatch(pattern!, key.Text.ToUpperInvariant()),
+        ValueKind.Text => key.Kind == ValueKind.Text && pattern!.IsMatch(key.Text.ToUpperInvariant()),
         _ => false,
     };
 
     /// <summary>First position (0-based) of <paramref name="v"/> among <paramref name="count"/> keys, or -1.</summary>
     private static int FindExact(Func<int, CellValue> key, int count, CellValue v)
     {
-        string? pattern = v.Kind == ValueKind.Text ? v.Text.ToUpperInvariant() : null;
+        var pattern = v.Kind == ValueKind.Text ? new WildcardMatcher.Compiled(v.Text.ToUpperInvariant()) : null;
         for (int i = 0; i < count; i++)
             if (ExactEquals(key(i), v, pattern)) return i;
         return -1;
@@ -194,7 +194,7 @@ internal static class LookupFunctions
         if (!TryInt(a, 0, out var i, out var err)) return err;
         if (i < 1 || i > a.Count - 1) return ValueError;
         int chosen = (int)i;
-        if (a.IsOmitted(chosen)) return Zero;           // as IF's omitted true branch (R67, R38)
+        if (a.IsOmitted(chosen)) return ValueError;     // R38: CHOOSE has no default for an omitted value
         return a.Evaluate(chosen);                       // only the chosen argument is evaluated, a range as in IF (R67)
     }
 

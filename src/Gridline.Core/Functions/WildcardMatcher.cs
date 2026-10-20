@@ -26,10 +26,17 @@ internal static class WildcardMatcher
         return tokens;
     }
 
-    /// <summary>True when <paramref name="pattern"/> matches the whole of <paramref name="text"/>.</summary>
-    public static bool IsMatch(string pattern, string text)
+    /// <summary>A pattern tokenised once, for matching many texts as a whole (lookups).</summary>
+    public sealed class Compiled(string pattern)
     {
-        var tokens = Tokenise(pattern);
+        private readonly List<Token> _tokens = Tokenise(pattern);
+
+        /// <summary>True when the pattern matches the whole of <paramref name="text"/>.</summary>
+        public bool IsMatch(string text) => MatchWhole(_tokens, text);
+    }
+
+    private static bool MatchWhole(List<Token> tokens, string text)
+    {
         int p = 0, t = 0, starAt = -1, starText = 0;
         while (t < text.Length)
         {
