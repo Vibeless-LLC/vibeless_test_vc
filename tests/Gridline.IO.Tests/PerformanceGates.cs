@@ -190,6 +190,34 @@ public class PerformanceGates(ITestOutputHelper output)
         finally { DeleteQuietly(path); }
     }
 
+    /// <summary>Internal gates (Task 7, R70): CSV import and export of the P-1 fixture, each ≤ 1.5 s.</summary>
+    [Fact(Skip = ReleaseOnly)]
+    public void Csv_Import_And_Export_100kCells_Within1500ms()
+    {
+        var wb = Workbook.FromCells(HalfConstantsHalfFormulas());
+        byte[] csv = CsvFormat.Export(wb); // warm-up
+        CsvFormat.Import(csv);
+        var exportTimes = new List<double>();
+        var importTimes = new List<double>();
+        Workbook? imported = null;
+        for (int i = 0; i < Runs; i++)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            csv = CsvFormat.Export(wb);
+            exportTimes.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+            t0 = Stopwatch.GetTimestamp();
+            imported = CsvFormat.Import(csv);
+            importTimes.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+        }
+        Assert.Equal(100_000, imported!.GetUsedAddresses().Count);
+        Assert.Equal(CellValue.FromNumber(100_000), imported.GetValue("A100000"));
+        double export = Median(exportTimes), import = Median(importTimes);
+        output.WriteLine($"CSV export 100k cells median {export:F1} ms (runs: {string.Join(", ", exportTimes.Select(t => t.ToString("F1")))})");
+        output.WriteLine($"CSV import 100k cells median {import:F1} ms (runs: {string.Join(", ", importTimes.Select(t => t.ToString("F1")))})");
+        Assert.True(export <= 1500, $"CSV export median {export:F1} ms > 1500 ms");
+        Assert.True(import <= 1500, $"CSV import median {import:F1} ms > 1500 ms");
+    }
+
     /// <summary>P-7 (§12) is measured in-host, see DECISIONS D-30 for why that is reliable and the measured headroom.</summary>
     [Fact(Skip = ReleaseOnly)]
     public void P7_Load100kFormulas_Within5s_And600MB()

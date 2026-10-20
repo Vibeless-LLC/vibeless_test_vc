@@ -20,17 +20,21 @@ public static class GridlineFile
     /// <exception cref="GridlineFormatException">The content is not a valid .gridline file.</exception>
     public static Workbook LoadFromPath(string path)
     {
+        return GridlineSerializer.Deserialize(ReadAllBytes(path));
+    }
+
+    /// <summary>Reads a whole file with the §8.4 exception mapping (shared with CSV import).</summary>
+    internal static byte[] ReadAllBytes(string path)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        byte[] bytes;
         try
         {
-            bytes = File.ReadAllBytes(path);
+            return File.ReadAllBytes(path);
         }
         catch (Exception ex) when (IsIoFailure(ex))
         {
             throw new GridlineIOException($"Cannot read '{path}': {ex.Message}", ex);
         }
-        return GridlineSerializer.Deserialize(bytes);
     }
 
     /// <summary>Test seam: <paramref name="beforeReplace"/> runs with the temp path after flush and close, before the replace.</summary>
@@ -41,8 +45,13 @@ public static class GridlineFile
     {
         ArgumentNullException.ThrowIfNull(workbook);
         ArgumentException.ThrowIfNullOrEmpty(path);
+        WriteAtomic(GridlineSerializer.Serialize(workbook), path, beforeReplace); // a serialization failure never touches the disk
+    }
 
-        byte[] bytes = GridlineSerializer.Serialize(workbook); // a serialization failure never touches the disk
+    /// <summary>The §8.4 atomic write of <paramref name="bytes"/> (temp file, flush, replace), shared with CSV export.</summary>
+    internal static void WriteAtomic(byte[] bytes, string path, Action<string>? beforeReplace = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
 
         string tmp = "";
         bool replaced = false;
