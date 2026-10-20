@@ -37,6 +37,14 @@ public partial class MainWindow : Window, IEditTextHistory
         Closing += OnClosing;
         Closed += (_, _) => _viewModel.EndSession(); // a clean exit deletes the recovery file (§11.6, R48)
         Loaded += (_, _) => Keyboard.Focus(SheetGrid);
+        // D-49: the content is disabled until startup has completed, so the grid cannot take focus at Loaded then. It is
+        // focused once the content is enabled again (queued, so the IsEnabled binding and the closing RecoveryDialog's
+        // own focus restore have run first).
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(MainViewModel.IsReady) || !_viewModel.IsReady) return;
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => Keyboard.Focus(SheetGrid));
+        };
     }
 
     /// <summary>§11.5: the close button counts as Exit, so a dirty workbook prompts and Cancel (or a failed or cancelled

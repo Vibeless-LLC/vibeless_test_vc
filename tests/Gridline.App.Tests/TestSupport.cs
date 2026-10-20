@@ -42,6 +42,29 @@ internal sealed class FakeDialogService : IDialogService
         return SavePath;
     }
 
+    public int OpenCsvDialogs { get; private set; }
+
+    /// <summary>The current path passed to each Export CSV Save dialog.</summary>
+    public List<string?> SaveCsvDialogs { get; } = [];
+
+    /// <summary>The path the Import CSV Open dialog returns (null = cancelled).</summary>
+    public string? OpenCsvPath { get; set; }
+
+    /// <summary>The path the Export CSV Save dialog returns (null = cancelled).</summary>
+    public string? SaveCsvPath { get; set; }
+
+    public string? ShowOpenCsvDialog()
+    {
+        OpenCsvDialogs++;
+        return OpenCsvPath;
+    }
+
+    public string? ShowSaveCsvDialog(string? currentPath)
+    {
+        SaveCsvDialogs.Add(currentPath);
+        return SaveCsvPath;
+    }
+
     public UnsavedChangesChoice PromptUnsavedChanges(string documentName)
     {
         Prompts.Add(documentName);

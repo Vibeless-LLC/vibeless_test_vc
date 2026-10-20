@@ -9,6 +9,7 @@ namespace Gridline.App.Controls;
 public sealed partial class GridControl
 {
     private bool _dragging;
+    private HeaderAxis? _dragAxis; // a drag that started on a row or column header (R75)
 
     /// <summary>Test seam (final review, §11.3, §11.4): where the grid reads the Shift/Ctrl/Alt state. Defaults to the
     /// global <see cref="Keyboard.Modifiers"/>; in-process control tests set it explicitly, so a physically held or stuck
@@ -95,9 +96,19 @@ public sealed partial class GridControl
         Focus(); // commits an open edit (OnGotKeyboardFocus)
         e.Handled = true;
         var p = e.GetPosition(this);
-        if (Source is not { } src || !GridMetrics.IsInCellArea(p)) return;
+        if (Source is not { } src) return;
         bool shift = (Modifiers & ModifierKeys.Shift) != 0;
+        if (HeaderSource is { } headers && HeaderAt(p) is { } header)
+        {
+            // R75: a row or column header selects the whole row or column; Shift+click and dragging extend it.
+            headers.SelectHeaders(header.Axis, header.Index, ActiveOther(header.Axis), shift);
+            _dragAxis = header.Axis;
+            _dragging = CaptureMouse();
+            return;
+        }
+        if (!GridMetrics.IsInCellArea(p)) return;
         src.SelectCell(GridMetrics.CellAtClamped(p, VisibleRange, _firstColumn, _firstRow), shift);
+        _dragAxis = null;
         _dragging = CaptureMouse();
     }
 
@@ -106,6 +117,13 @@ public sealed partial class GridControl
         base.OnMouseMove(e);
         if (!_dragging || Source is not { } src || e.LeftButton != MouseButtonState.Pressed) return;
         var cell = GridMetrics.CellAtClamped(e.GetPosition(this), VisibleRange, _firstColumn, _firstRow);
+        if (_dragAxis is { } axis && HeaderSource is { } headers)
+        {
+            int index = axis == HeaderAxis.Rows ? cell.Row : cell.Column;
+            int current = axis == HeaderAxis.Rows ? src.ActiveCell.Row : src.ActiveCell.Column;
+            if (index != current) headers.SelectHeaders(axis, index, ActiveOther(axis), extend: true);
+            return;
+        }
         if (cell != src.ActiveCell) src.SelectCell(cell, extend: true);
     }
 
@@ -114,11 +132,13 @@ public sealed partial class GridControl
         base.OnMouseLeftButtonUp(e);
         if (_dragging) ReleaseMouseCapture();
         _dragging = false;
+        _dragAxis = null;
     }
 
     protected override void OnLostMouseCapture(MouseEventArgs e)
     {
         base.OnLostMouseCapture(e);
         _dragging = false;
+        _dragAxis = null;
     }
 }

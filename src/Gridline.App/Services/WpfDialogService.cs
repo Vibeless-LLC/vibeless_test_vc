@@ -9,6 +9,7 @@ namespace Gridline.App.Services;
 public sealed class WpfDialogService : IDialogService
 {
     private const string Filter = "Gridline workbooks (*.gridline)|*.gridline";
+    private const string CsvFilter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*";
 
     private static Window? Owner => Application.Current?.MainWindow is { IsLoaded: true } w ? w : null;
 
@@ -32,6 +33,23 @@ public sealed class WpfDialogService : IDialogService
         if (currentPath is not null)
         {
             dialog.FileName = Path.GetFileName(currentPath);
+            dialog.InitialDirectory = Path.GetDirectoryName(currentPath);
+        }
+        return Show(dialog) ? dialog.FileName : null;
+    }
+
+    public string? ShowOpenCsvDialog()
+    {
+        var dialog = new OpenFileDialog { Filter = CsvFilter, DefaultExt = ".csv", CheckFileExists = true };
+        return Show(dialog) ? dialog.FileName : null;
+    }
+
+    public string? ShowSaveCsvDialog(string? currentPath)
+    {
+        var dialog = new SaveFileDialog { Filter = CsvFilter, DefaultExt = ".csv", AddExtension = true, OverwritePrompt = true };
+        if (currentPath is not null)
+        {
+            dialog.FileName = Path.GetFileName(Path.ChangeExtension(currentPath, ".csv"));
             dialog.InitialDirectory = Path.GetDirectoryName(currentPath);
         }
         return Show(dialog) ? dialog.FileName : null;

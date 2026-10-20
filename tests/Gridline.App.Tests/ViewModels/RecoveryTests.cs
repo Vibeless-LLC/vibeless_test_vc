@@ -278,6 +278,83 @@ public sealed class RecoveryTests : IDisposable
     }
 
     [Fact]
+    public void BeginStartup_WithRecoveryFiles_NoCommandOrInputRuns_UntilCompleteStartup()
+    {
+        // D-49 closes D-40's gap: between the window becoming visible and CompleteStartup nothing reaches the workbook.
+        PlantRecovery("A1", "1", TimeSpan.Zero);
+        var vm = NewViewModel();
+        var readyChanges = new List<bool>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.IsReady)) readyChanges.Add(vm.IsReady); };
+        int canExecuteChanges = 0;
+        vm.NewCommand.CanExecuteChanged += (_, _) => canExecuteChanges++;
+        Assert.True(vm.IsReady);
+
+        Assert.True(vm.BeginStartup(null));
+
+        Assert.False(vm.IsReady);
+        RelayCommand[] commands =
+        [
+            vm.NewCommand, vm.OpenCommand, vm.SaveCommand, vm.SaveAsCommand, vm.ImportCsvCommand, vm.ExportCsvCommand,
+            vm.ExitCommand, vm.UndoCommand, vm.RedoCommand, vm.CopyCommand, vm.PasteCommand,
+            vm.InsertRowsOrColumnsCommand, vm.DeleteRowsOrColumnsCommand,
+        ];
+        Assert.All(commands, c => Assert.False(c.CanExecute(null)));
+        int closes = 0;
+        vm.CloseRequested += (_, _) => closes++;
+        foreach (var c in commands) c.Execute(null); // ignored
+        Assert.Equal(0, closes);
+        Assert.Empty(_dialogs.Prompts);
+        Assert.Equal(0, _dialogs.OpenDialogs);
+        Assert.Equal(0, _dialogs.OpenCsvDialogs);
+
+        vm.SelectCell(new Core.Addressing.CellAddress(3, 3), extend: false);
+        vm.MoveActiveCell(1, 1, extend: false);
+        vm.SelectHeaders(Gridline.App.Controls.HeaderAxis.Rows, 5, 1, extend: false);
+        vm.PrepareHeaderMenu(Gridline.App.Controls.HeaderAxis.Columns, 2, 1);
+        vm.BeginEdit("x");
+        vm.FormulaBarText = "typed";
+        vm.CommitEdit(0, 1);
+        vm.ClearSelection();
+        Assert.Equal("A1", vm.ActiveAddress);
+        Assert.Null(vm.HeaderSelectionAxis);
+        Assert.False(vm.IsEditing);
+        Assert.Equal("", vm.FormulaBarText);
+        Assert.Equal("", vm.Workbook.GetInput("A1"));
+        Assert.False(vm.IsDirty);
+
+        Assert.False(vm.CompleteStartup()); // the fake closes the dialog without restoring
+        Assert.True(vm.IsReady);
+        Assert.Equal([false, true], readyChanges);
+        Assert.True(canExecuteChanges >= 2);
+        Assert.True(vm.NewCommand.CanExecute(null));
+        Assert.True(vm.ExportCsvCommand.CanExecute(null));
+        vm.SelectCell(new Core.Addressing.CellAddress(3, 3), extend: false);
+        Assert.Equal("C3", vm.ActiveAddress);
+    }
+
+    [Fact]
+    public void BeginStartup_WithoutRecoveryFiles_IsReadyAtOnce()
+    {
+        var vm = NewViewModel();
+        Assert.False(vm.BeginStartup(null));
+        Assert.True(vm.IsReady);
+        Assert.True(vm.NewCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void CompleteStartup_AfterTheWindowClosed_ShowsNoDialog()
+    {
+        PlantRecovery("A1", "1", TimeSpan.Zero);
+        var vm = NewViewModel();
+        Assert.True(vm.BeginStartup(null));
+        Assert.True(vm.ConfirmClose()); // nothing can have been edited, so the close needs no prompt
+        vm.EndSession();
+        Assert.False(vm.CompleteStartup());
+        Assert.Empty(_dialogs.Recoveries);
+        Assert.False(_timer.Running);
+    }
+
+    [Fact]
     public void CompleteStartup_Restore_SkipsTheFileArgument()
     {
         var planted = PlantRecovery("B2", "restored", TimeSpan.Zero);

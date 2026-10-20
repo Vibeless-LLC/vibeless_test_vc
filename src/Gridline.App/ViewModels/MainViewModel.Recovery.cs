@@ -18,6 +18,25 @@ public sealed partial class MainViewModel
     private Guid _sessionId = Guid.NewGuid();
     private bool _restoredUnsaved; // a restored workbook is dirty until saved (R50), with no undo step behind it
     private bool _sessionEnded;
+    private bool _startupPending;
+
+    /// <summary>
+    /// False from a <see cref="BeginStartup"/> that left recovery pending until <see cref="CompleteStartup"/> has finished
+    /// (D-40's window between the main window becoming visible and the RecoveryDialog; closed by D-49). While false every
+    /// command is unavailable, selection, editing and header input are ignored, and the window's content is disabled, so
+    /// no user action can reach the workbook before recovery has been offered.
+    /// </summary>
+    public bool IsReady
+    {
+        get => !_startupPending;
+        private set
+        {
+            if (_startupPending == !value) return;
+            _startupPending = !value;
+            OnPropertyChanged();
+            foreach (RelayCommand command in AllCommands) command.RaiseCanExecuteChanged();
+        }
+    }
 
     /// <summary>The session guid that names this session's recovery file. A restore adopts the restored file's guid.</summary>
     public Guid SessionId => _sessionId;
@@ -54,6 +73,7 @@ public sealed partial class MainViewModel
         }
         _pendingRecovery = files;
         _pendingFileArgument = fileArgument;
+        IsReady = false; // until CompleteStartup (D-49)
         return true;
     }
 
@@ -67,9 +87,11 @@ public sealed partial class MainViewModel
         _pendingRecovery = null;
         string? fileArgument = _pendingFileArgument;
         _pendingFileArgument = null;
+        if (_sessionEnded) return false; // the window was closed before the dialog could be shown
         bool restored = OfferRecovery(files);
         if (!restored && fileArgument is not null) TryLoad(fileArgument);
         _autosaveTimer?.Start();
+        IsReady = true;
         return restored;
     }
 
