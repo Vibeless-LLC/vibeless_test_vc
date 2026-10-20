@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="System.IO" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gridline.Core\Gridline.Core.csproj" />
+    <ProjectReference Include="..\..\src\Gridline.IO\Gridline.IO.csproj" />
+    <!-- Referencing the WinExe copies Gridline.App.exe, its runtimeconfig and deps beside the test assembly, which the
+         FlaUI tests launch (AppUnderTest.ExePath). -->
+    <ProjectReference Include="..\..\src\Gridline.App\Gridline.App.csproj" />
+  </ItemGroup>
+</Project>
