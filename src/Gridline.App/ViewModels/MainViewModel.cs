@@ -115,6 +115,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void OnCellsChanged(object? sender, CellsChangedEventArgs e)
     {
+        ForgetInternalCopyIfTouched(e.Addresses); // R47: an edit inside the copied range cancels the copy
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
         RefreshContentDerived(); // repaint only (ContentChanged); the view does not scroll

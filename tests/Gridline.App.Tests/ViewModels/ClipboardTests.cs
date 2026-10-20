@@ -114,9 +114,9 @@ public class ClipboardTests
     {
         _vm.Workbook.ApplyBatch([new("A1", "1"), new("A2", "2"), new("B1", "=A1+$A$1"), new("B2", "=A2*2")]);
         Select("B1", "B2");
+        int before = UndoSteps(); // before Copy: counting undoes and redoes, which touches the range and cancels a copy
         _vm.Copy();
         Go("D5");
-        int before = UndoSteps();
 
         Assert.True(_vm.IsInternalPaste(_clipboard.Text));
         Assert.True(_vm.Paste());
@@ -144,9 +144,9 @@ public class ClipboardTests
     {
         _vm.Workbook.ApplyBatch([new("A1", "1"), new("B1", "2")]);
         Select("A1", "B1");
+        int before = UndoSteps(); // before Copy (see above)
         _vm.Copy();
         Go("ZZ1");
-        int before = UndoSteps();
         Assert.False(_vm.Paste());
         Assert.Single(_dialogs.Errors);
         Assert.Equal("", _vm.Workbook.GetInput("ZZ1"));
@@ -175,6 +175,63 @@ public class ClipboardTests
         Assert.False(_vm.IsInternalPaste(_clipboard.Text));
         _vm.Paste();
         Assert.Equal("2", _vm.Workbook.GetInput("A1")); // the displayed value, interpreted by §4.3
+    }
+
+    [Fact]
+    public void Paste_AfterAnEditInsideTheCopiedRange_IsExternal_TheCopiedTextIsParsed()
+    {
+        // R47, final review: as in Excel, an edit inside the copied range cancels the copy; the paste then parses the
+        // copied text (the values as they were copied), not the range's new contents.
+        _vm.Workbook.ApplyBatch([new("A1", "1"), new("B1", "=A1*10")]);
+        Select("A1", "B1");
+        Assert.True(_vm.Copy());
+        Assert.Equal("1\t10\r\n", _clipboard.Text);
+        _vm.Workbook.SetCell("A1", "5"); // inside the copied range (B1's value changes too)
+        Assert.False(_vm.IsInternalPaste(_clipboard.Text));
+        Go("D1");
+        int before = UndoSteps();
+        Assert.True(_vm.Paste());
+        Assert.Equal("1", _vm.Workbook.GetInput("D1"));
+        Assert.Equal("10", _vm.Workbook.GetInput("E1")); // a value: the formula is not copied
+        Assert.Equal(before + 1, UndoSteps());
+    }
+
+    [Fact]
+    public void Paste_AfterAFormulaInsideTheCopiedRangeChangesValue_IsExternal()
+    {
+        // Any CellsChanged address inside the range counts, including a formula there recalculated by an edit outside.
+        _vm.Workbook.ApplyBatch([new("A1", "1"), new("B1", "=A1*10")]);
+        Select("B1", "B1");
+        _vm.Copy();
+        _vm.Workbook.SetCell("A1", "2"); // outside the range; B1's value changes
+        Assert.False(_vm.IsInternalPaste(_clipboard.Text));
+    }
+
+    [Fact]
+    public void Paste_AfterUndoInsideTheCopiedRange_IsExternal()
+    {
+        _vm.Workbook.SetCell("A1", "=1+1");
+        Select("A1", "A1");
+        _vm.Copy();
+        _vm.UndoCommand.Execute(null); // A1 back to blank: inside the range
+        Assert.False(_vm.IsInternalPaste(_clipboard.Text));
+    }
+
+    [Fact]
+    public void Paste_AfterAnEditOutsideTheCopiedRange_StaysInternal()
+    {
+        _vm.Workbook.ApplyBatch([new("A1", "1"), new("B1", "=A1+1")]);
+        Select("B1", "B1");
+        _vm.Copy();
+        _vm.Workbook.SetCell("C3", "elsewhere"); // touches nothing inside B1
+        Assert.True(_vm.IsInternalPaste(_clipboard.Text));
+        Go("B2");
+        Assert.True(_vm.Paste());
+        Assert.Equal("=A2+1", _vm.Workbook.GetInput("B2")); // still the formula, references shifted (§9.4)
+        Assert.True(_vm.IsInternalPaste(_clipboard.Text)); // pasting outside the source keeps the copy
+        Go("B3");
+        Assert.True(_vm.Paste());
+        Assert.Equal("=A3+1", _vm.Workbook.GetInput("B3"));
     }
 
     // ---- External paste (§8.5, Tab) ----

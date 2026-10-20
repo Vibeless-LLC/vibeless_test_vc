@@ -8,7 +8,7 @@ namespace Gridline.App.ViewModels;
 /// <summary>
 /// Copy and Paste (§11.6, R46, R47). Copy remembers the selection for an in-app paste (§9.4 CopyPaste) and puts the
 /// displayed values on the system clipboard as tab-separated text. Paste is internal when the clipboard text still equals
-/// the text this app last placed there (R47); otherwise the text is parsed with the §8.5 rules (Tab delimiter) and
+/// the text this app last placed there and nothing inside the copied range has changed since (R47); otherwise the text is parsed with the §8.5 rules (Tab delimiter) and
 /// written at the active cell as one ApplyBatch. Both act on the selection only while no edit is open (a focused text
 /// box handles Ctrl+C/Ctrl+V itself). See DECISIONS D-39.
 /// </summary>
@@ -91,12 +91,29 @@ public sealed partial class MainViewModel
         return true;
     }
 
-    /// <summary>A new workbook was adopted: the remembered range belongs to the old one, so the next paste of that text is
-    /// external (values only).</summary>
+    /// <summary>A new workbook was adopted, or the copied range was changed: the remembered range no longer holds what was
+    /// copied, so the next paste of that text is external (values only).</summary>
     private void ForgetInternalCopy()
     {
         _copiedRange = null;
         _copiedText = null;
+    }
+
+    /// <summary>R47, final review (as Excel cancels copy mode on an edit): when a change touches any address inside the
+    /// copied range (an edit, a paste, Undo/Redo, or a formula there whose value changed), the internal copy is forgotten,
+    /// so the next paste is external and parses the copied text instead of copying the range's new contents. O(changed
+    /// addresses) and only while a copy is remembered.</summary>
+    private void ForgetInternalCopyIfTouched(IReadOnlyCollection<string> addresses)
+    {
+        if (_copiedRange is not { } range) return;
+        foreach (string address in addresses)
+        {
+            if (CellAddress.TryParse(address, out CellAddress cell) && range.Contains(cell))
+            {
+                ForgetInternalCopy();
+                return;
+            }
+        }
     }
 
     private bool CanUseClipboard() => !_isEditing;
