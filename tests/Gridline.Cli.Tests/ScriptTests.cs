@@ -284,7 +284,7 @@ public sealed class ScriptTests : IDisposable
         Assert.Equal("error: cannot write output: broken pipe\n", Encoding.UTF8.GetString(e.ToArray()));
     }
 
-    // §10.3: a line longer than MaxInputLength + 64 is discarded up to LF, reported as ERR, and the script continues.
+    // §10.3: a line longer than 2×MaxInputLength + 64 (R33) is discarded up to LF, reported as ERR, and the script continues.
     [Fact]
     public void OverlongLine_IsDiscardedWithErr_AndScriptContinues()
     {

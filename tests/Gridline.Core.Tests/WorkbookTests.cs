@@ -482,6 +482,38 @@ public class WorkbookTests
     }
 
     [Fact]
+    public void TwoFailingEditsWithLargeUndoLogs_LeaveEverythingUnchanged()
+    {
+        // §9.2: each failing edit writes ~2,000 values (more than the 1,024-entry retained undo capacity), so the
+        // log is trimmed after the rollback; two in a row must still leave values and edges intact.
+        const int n = 2000;
+        var wb = new Workbook(new ThrowingResolver());
+        wb.SetCell("A1", "1");
+        wb.SetCell("B1", "=A1");
+        for (int i = 2; i <= n; i++) wb.SetCell("B" + i, $"=B{i - 1}+1");
+        wb.SetCell("C1", $"=BOOM(B{n}-{n - 4})"); // B2000 = A1 + 1999, so BOOM sees 3 when A1 = 0
+        Assert.Equal(N(n), wb.GetValue("B" + n));
+        Assert.Equal(N(4), wb.GetValue("C1"));
+        var addresses = wb.GetUsedAddresses().ToList();
+        var before = addresses.ToDictionary(a => a, a => wb.GetValue(a));
+        var log = new EventLog(wb);
+
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("A1", "0"));
+        Assert.Throws<InvalidOperationException>(() => wb.SetCell("A1", "0.0"));
+
+        Assert.Empty(log.Events);
+        Assert.Equal("1", wb.GetInput("A1"));
+        Assert.Equal(addresses, wb.GetUsedAddresses().ToList());
+        foreach (var (addr, value) in before) Assert.Equal(value, wb.GetValue(addr));
+
+        // Edges intact: a good edit recomputes the whole chain and C1.
+        wb.SetCell("A1", "11");
+        Assert.Equal(N(10 + n), wb.GetValue("B" + n));
+        Assert.Equal(N(14), wb.GetValue("C1"));
+        Assert.Equal(n + 1, wb.LastRecalc.EvaluatedFormulaCount);
+    }
+
+    [Fact]
     public void ThrowingNewFormula_LeavesCellEmptyAndNoEdges()
     {
         var wb = new Workbook(new ThrowingResolver());

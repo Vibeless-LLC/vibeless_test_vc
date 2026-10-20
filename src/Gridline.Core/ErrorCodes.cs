@@ -25,7 +25,7 @@ public static class ErrorCodes
     public static bool IsKnown(string? code) => code is not null && Known.Contains(code);
 
     /// <summary>Maps a code in any letter case (e.g. "#div/0!") to its canonical spelling; false when it is not one of the eight codes.</summary>
-    public static bool TryGetCanonical(string? code, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? canonical)
+    internal static bool TryGetCanonical(string? code, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? canonical)
     {
         if (code is null) { canonical = null; return false; }
         return ByAnyCase.TryGetValue(code, out canonical);

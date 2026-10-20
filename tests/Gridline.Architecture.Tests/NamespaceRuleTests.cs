@@ -64,7 +64,7 @@ public class NamespaceRuleTests
             }
     }
 
-    // Guard against vacuous namespace rules: every namespace except Commands (still empty in Phase 1) has types.
+    // Guard against vacuous namespace rules: every namespace except Commands (still empty) has types.
     [Theory]
     [InlineData("Addressing")]
     [InlineData("Parsing")]

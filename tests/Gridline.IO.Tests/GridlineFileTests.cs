@@ -84,7 +84,7 @@ public sealed class GridlineFileTests : IDisposable
     [Fact]
     public void Save_LongTargetName_StillSaves()
     {
-        string name = new string('n', 250) + ".gl"; // 253 chars, valid
+        string name = new string('n', 252) + ".gl"; // 255 chars, the usual per-component limit
         var wb = Sample();
         GridlineFile.SaveToPath(wb, P(name));
         Assert.Equal(GridlineSerializer.Serialize(wb), File.ReadAllBytes(P(name)));

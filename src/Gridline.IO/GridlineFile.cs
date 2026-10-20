@@ -53,10 +53,11 @@ public static class GridlineFile
             string full = Path.GetFullPath(path);
             string dir = Path.GetDirectoryName(full) ?? throw new IOException($"'{path}' has no parent directory.");
             // Fixed-length name independent of the target's, so a valid long target name cannot overflow the limit.
-            tmp = Path.Combine(dir, $".gl-{Guid.NewGuid():N}.tmp");
+            string candidate = Path.Combine(dir, $".gl-{Guid.NewGuid():N}.tmp");
 
-            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var fs = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
+                tmp = candidate; // only a file this call created (CreateNew succeeded) may be deleted in the finally
                 fs.Write(bytes);
                 fs.Flush(flushToDisk: true);
             }

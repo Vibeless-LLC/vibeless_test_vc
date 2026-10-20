@@ -126,6 +126,7 @@ public sealed class Phase2AcceptanceTests : IDisposable
         var (code, o, e, _) = Gridline(script, "script");
         Assert.Equal(0, code);
         Assert.Equal("", e);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(f1)!, "*.tmp*")); // no temp file left behind (§8.4)
         return (o, File.ReadAllBytes(f1), File.ReadAllBytes(f2));
     }
 

@@ -237,12 +237,12 @@ internal static class MathFunctions
         return x < 0 ? NumError : CellValue.FromNumber(Math.Sqrt(x));
     }
 
+    private const double ModQuotientLimit = 134_217_728; // 2^27
+
     /// <summary>
     /// MOD(n,d) (§7.1, R35): the result has the sign of d, i.e. n - d*floor(n/d), computed with exact IEEE fmod and then
     /// adjusted to d's sign. d = 0 is #DIV/0!; |n/d| >= 2^27 is #NUM! (Excel's documented limit).
     /// </summary>
-    private const double ModQuotientLimit = 134_217_728; // 2^27
-
     private static CellValue Mod(IFunctionArguments a)
     {
         if (!TryTwoNumbers(a, out double n, out double d, out var error)) return error;
