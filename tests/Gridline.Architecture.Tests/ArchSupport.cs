@@ -25,6 +25,21 @@ internal static class ArchSupport
             .Select(t => t.FullName!)
             .ToArray();
 
+    /// <summary>All Core namespaces that take part in the §3.3 rules.</summary>
+    public static readonly IReadOnlyList<string> CoreNamespaces = ["Addressing", "Parsing", "Evaluation", "Functions", "Dependencies", "Commands"];
+
+    /// <summary>The §3.3 rules, owner namespace -> sibling namespaces it MUST NOT depend on. The production tests
+    /// and the sanity tests both read this table, so a rule cannot be changed in one place only.</summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> NamespaceRules =
+        new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["Addressing"] = ["Parsing", "Evaluation", "Functions", "Dependencies", "Commands"], // plus the Core root types
+            ["Parsing"] = ["Evaluation", "Functions", "Dependencies", "Commands"],
+            ["Evaluation"] = ["Commands", "Dependencies"],
+            ["Functions"] = ["Parsing", "Dependencies", "Commands"],
+            ["Dependencies"] = ["Functions", "Commands"],
+        };
+
     public static string Describe(TestResult r) =>
         r.IsSuccessful ? "" : "Violating types: " + string.Join(", ", r.FailingTypeNames ?? []);
 
@@ -81,6 +96,7 @@ internal static class ArchSupport
         if (!(ns == "System.Collections" || ns.StartsWith("System.Collections.", StringComparison.Ordinal))) return false;
         if (ns.StartsWith("System.Collections.Immutable", StringComparison.Ordinal) || ns.StartsWith("System.Collections.Frozen", StringComparison.Ordinal)) return false;
         if (t.IsInterface && t.Name.StartsWith("IReadOnly", StringComparison.Ordinal)) return false;
+        if (t.Name.StartsWith("ReadOnly", StringComparison.Ordinal)) return false; // ReadOnlyCollection<T>, ReadOnlyDictionary<,>
         return true;
     }
 
@@ -101,10 +117,21 @@ internal static class ArchSupport
             foreach (var p in t.GetProperties(Statics))
             {
                 var set = p.SetMethod;
-                if (set == null || !set.IsStatic) continue;
-                bool isInit = set.ReturnParameter.GetRequiredCustomModifiers().Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit");
-                if (isInit) continue;
-                if (set.IsPublic || set.IsFamily || set.IsFamilyOrAssembly) found.Add($"{t.FullName}.{p.Name}: static property has a settable accessor");
+                if (set != null && set.IsStatic)
+                {
+                    bool isInit = set.ReturnParameter.GetRequiredCustomModifiers().Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit");
+                    if (!isInit && (set.IsPublic || set.IsFamily || set.IsFamilyOrAssembly)) found.Add($"{t.FullName}.{p.Name}: static property has a settable accessor");
+                }
+                // A get-only (or init-only) static property of a mutable type still shares mutable state.
+                var get = p.GetMethod;
+                if (get != null && get.IsStatic && (get.IsPublic || get.IsFamily || get.IsFamilyOrAssembly) && IsMutableType(p.PropertyType))
+                    found.Add($"{t.FullName}.{p.Name}: static property exposes mutable type {p.PropertyType.Name}");
+            }
+            foreach (var e in t.GetEvents(Statics))
+            {
+                var add = e.AddMethod;
+                if (add != null && add.IsStatic && (add.IsPublic || add.IsFamily || add.IsFamilyOrAssembly))
+                    found.Add($"{t.FullName}.{e.Name}: static event is mutable shared state");
             }
         }
         return found;

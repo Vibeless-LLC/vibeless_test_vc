@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gridline.Core\Gridline.Core.csproj" />
+    <ProjectReference Include="..\..\src\Gridline.IO\Gridline.IO.csproj" />
+  </ItemGroup>
+</Project>
