@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
 using FlaUI.Core.WindowsAPI;
@@ -10,8 +11,10 @@ namespace Gridline.App.Tests.UI;
 /// prompt on the close button and Exit) and §11.6 copy/paste of a formula. Each test closes the app in Dispose.</summary>
 [Collection(UiCollection.Name)]
 [Trait("Category", "UI")]
-public sealed class FileClipboardUiTests : IDisposable
+public sealed class FileClipboardUiTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly ITestOutputHelper _output = UiLog.Attach(output);
+
     private readonly string _dir = TestSupport.NewTempDirectory();
 
     public void Dispose()

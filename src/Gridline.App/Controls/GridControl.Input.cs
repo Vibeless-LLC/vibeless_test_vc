@@ -10,6 +10,13 @@ public sealed partial class GridControl
 {
     private bool _dragging;
 
+    /// <summary>Test seam (final review, §11.3, §11.4): where the grid reads the Shift/Ctrl/Alt state. Defaults to the
+    /// global <see cref="Keyboard.Modifiers"/>; in-process control tests set it explicitly, so a physically held or stuck
+    /// key on the desktop cannot change their result.</summary>
+    internal Func<ModifierKeys> ModifierProvider { get; set; } = static () => Keyboard.Modifiers;
+
+    private ModifierKeys Modifiers => ModifierProvider();
+
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
@@ -22,8 +29,9 @@ public sealed partial class GridControl
                 e.Handled = true;
             return;
         }
-        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-        bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+        ModifierKeys modifiers = Modifiers;
+        bool shift = (modifiers & ModifierKeys.Shift) != 0;
+        bool ctrl = (modifiers & ModifierKeys.Control) != 0;
         switch (e.Key)
         {
             case Key.Left: src.MoveActiveCell(-1, 0, shift); break;
@@ -58,7 +66,7 @@ public sealed partial class GridControl
         base.OnTextInput(e);
         if (e.Handled || _editor.IsKeyboardFocusWithin || EditSource is not { } edit) return;
         if (!IsPrintable(e.Text)) return;
-        var mods = Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt);
+        var mods = Modifiers & (ModifierKeys.Control | ModifierKeys.Alt);
         if (mods is ModifierKeys.Control or ModifierKeys.Alt) return;
         BeginEditFromGrid(edit, e.Text);
         e.Handled = true;
@@ -88,7 +96,7 @@ public sealed partial class GridControl
         e.Handled = true;
         var p = e.GetPosition(this);
         if (Source is not { } src || !GridMetrics.IsInCellArea(p)) return;
-        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        bool shift = (Modifiers & ModifierKeys.Shift) != 0;
         src.SelectCell(GridMetrics.CellAtClamped(p, VisibleRange, _firstColumn, _firstRow), shift);
         _dragging = CaptureMouse();
     }

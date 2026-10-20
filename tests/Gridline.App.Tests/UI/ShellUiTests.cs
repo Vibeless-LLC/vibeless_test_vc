@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Input;
@@ -12,8 +13,10 @@ namespace Gridline.App.Tests.UI;
 /// <summary>FlaUI acceptance for the app shell (§11.1-§11.3, §11.7, R44). Each test closes the app in Dispose (finally).</summary>
 [Collection(UiCollection.Name)]
 [Trait("Category", "UI")]
-public class ShellUiTests
+public class ShellUiTests(ITestOutputHelper output)
 {
+    private readonly ITestOutputHelper _output = UiLog.Attach(output);
+
     private static readonly string[] TopLevelIds = ["NameBox", "FormulaBar", "Grid", "SelectionValue", "SelectionSum", "MenuFile", "MenuEdit"];
 
     [Fact]

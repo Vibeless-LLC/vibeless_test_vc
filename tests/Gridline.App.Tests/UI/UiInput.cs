@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
 using FlaUI.Core.WindowsAPI;
@@ -20,11 +21,22 @@ internal static class UiInput
 
     /// <summary>Releases any Shift, Ctrl or Alt the system still reports as down. Injected chords occasionally leave a
     /// modifier down at the OS level after a UI test (observed: Shift), which then leaks into later keyboard use on the
-    /// desktop, including in-process WPF tests that read <c>Keyboard.Modifiers</c>. Called when each app is disposed.</summary>
-    public static void ReleaseStuckModifiers()
+    /// desktop. (In-process control tests no longer read <c>Keyboard.Modifiers</c>; they set
+    /// <c>GridControl.ModifierProvider</c>.) Called when each app is disposed; each key it actually releases is written to
+    /// the current test's output (<see cref="UiLog"/>).</summary>
+    /// <returns>The keys that were down and were released.</returns>
+    public static IReadOnlyList<VirtualKeyShort> ReleaseStuckModifiers()
     {
+        var released = new List<VirtualKeyShort>();
         foreach (var key in Modifiers)
-            if (GetAsyncKeyState((int)key) < 0) Keyboard.Release(key);
+        {
+            if (GetAsyncKeyState((int)key) >= 0) continue;
+            Keyboard.Release(key);
+            released.Add(key);
+        }
+        if (released.Count > 0)
+            UiLog.Write("ReleaseStuckModifiers: released " + string.Join(", ", released) + " (reported down after the app closed)");
+        return released;
     }
 
     /// <summary>Navigation keys are sent as extended scan codes. Sent as bare virtual keys they look like numpad keys, and
@@ -85,5 +97,22 @@ internal static class UiInput
     {
         var result = FlaUI.Core.Tools.Retry.WhileFalse(condition, UiTimeout, TimeSpan.FromMilliseconds(50), ignoreException: true);
         Assert.True(result.Result, what);
+    }
+}
+
+/// <summary>The running UI test's output. The UI collection is not parallel, so one current test at a time: each UI test
+/// class attaches its <see cref="ITestOutputHelper"/> when it is constructed.</summary>
+internal static class UiLog
+{
+    private static ITestOutputHelper? _output;
+
+    /// <summary>Makes <paramref name="output"/> the current test's output and returns it.</summary>
+    public static ITestOutputHelper Attach(ITestOutputHelper output) => _output = output;
+
+    public static void Write(string message)
+    {
+        System.Diagnostics.Trace.WriteLine(message);
+        try { _output?.WriteLine(message); }
+        catch (InvalidOperationException) { /* that test has already finished */ }
     }
 }

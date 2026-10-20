@@ -34,7 +34,7 @@ public class GridVirtualizationTests
 
     private static GridControl Layout(IGridDataSource source, double width = 800, double height = 600)
     {
-        var grid = new GridControl { Source = source };
+        var grid = new GridControl { Source = source, ModifierProvider = () => System.Windows.Input.ModifierKeys.None };
         grid.Measure(new Size(width, height));
         grid.Arrange(new Rect(0, 0, width, height));
         return grid;
@@ -218,7 +218,7 @@ public class GridVirtualizationTests
     public void NavigationKeys_AreHandledByTheGrid_SoTheScrollViewerNeverScrollsAlone() => RunSta(() =>
     {
         var vm = NewViewModel();
-        var grid = new GridControl { Source = vm };
+        var grid = new GridControl { Source = vm, ModifierProvider = () => System.Windows.Input.ModifierKeys.None };
         var scroller = new System.Windows.Controls.ScrollViewer { CanContentScroll = true, Content = grid, Width = 800, Height = 600 };
         using var host = new System.Windows.Interop.HwndSource(new System.Windows.Interop.HwndSourceParameters("grid-test") { Width = 800, Height = 600 })
         {
@@ -270,7 +270,7 @@ public class GridVirtualizationTests
         var empty = new GridControl();
         Assert.Equal("", UIElementAutomationPeer.CreatePeerForElement(empty).GetItemStatus()); // no source, no frame
 
-        var grid = new GridControl { Source = new RecordingSource() };
+        var grid = new GridControl { Source = new RecordingSource(), ModifierProvider = () => System.Windows.Input.ModifierKeys.None };
         var peer = UIElementAutomationPeer.CreatePeerForElement(grid);
         Assert.Equal(0, grid.RenderCount);
         Assert.Equal("", peer.GetItemStatus());

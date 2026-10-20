@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
 using FlaUI.Core.WindowsAPI;
@@ -9,8 +10,10 @@ namespace Gridline.App.Tests.UI;
 /// <summary>FlaUI acceptance for §11.4 editing, the name box, the formula bar and R49. Each test closes the app in Dispose.</summary>
 [Collection(UiCollection.Name)]
 [Trait("Category", "UI")]
-public class EditingUiTests
+public class EditingUiTests(ITestOutputHelper output)
 {
+    private readonly ITestOutputHelper _output = UiLog.Attach(output);
+
     private sealed record Ui(Window Window, AutomationElement Grid, TextBox NameBox, TextBox FormulaBar, AutomationElement SelectionValue, AutomationElement SelectionSum);
 
     private static Ui Start(AppUnderTest app)

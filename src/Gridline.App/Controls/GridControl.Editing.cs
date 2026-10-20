@@ -124,7 +124,7 @@ public sealed partial class GridControl
     private void OnEditorPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (EditSource is not { IsEditing: true } edit) return;
-        bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        bool shift = (Modifiers & ModifierKeys.Shift) != 0;
         switch (e.Key)
         {
             case Key.Enter: edit.CommitEdit(0, shift ? -1 : 1); break;

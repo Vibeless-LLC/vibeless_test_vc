@@ -21,9 +21,13 @@ public class GridEditingTests
         public ScrollViewer Scroller { get; }
         private readonly HwndSource _source;
 
+        /// <summary>The modifier state the grid sees (the test seam), so a key held on the desktop cannot leak in.</summary>
+        public ModifierKeys Modifiers { get; set; } = ModifierKeys.None;
+
         public Host()
         {
             Grid = new GridControl { Source = Vm };
+            Grid.ModifierProvider = () => Modifiers;
             Scroller = new ScrollViewer { CanContentScroll = true, Content = Grid, Width = 800, Height = 600 };
             _source = new HwndSource(new HwndSourceParameters("grid-edit-test") { Width = 800, Height = 600 }) { RootVisual = Scroller };
             Scroller.UpdateLayout();
@@ -142,6 +146,39 @@ public class GridEditingTests
         Assert.Equal(Visibility.Collapsed, h.Grid.Editor.Visibility);
         Assert.Equal("keep", h.Vm.Workbook.GetInput("A1"));
         Assert.Equal("A1", h.Vm.ActiveAddress);
+    });
+
+    [Fact]
+    public void ShiftFromTheModifierSeam_ReversesEnterAndTab_WithAndWithoutAnEdit() => RunSta(() =>
+    {
+        // The grid reads modifiers only through GridControl.ModifierProvider, so the result does not depend on the
+        // desktop's real keyboard state (final review: a stuck Shift used to flip these tests).
+        using var h = new Host();
+        h.Vm.SelectCell(CellAddress.Parse("C3"), extend: false);
+        h.Modifiers = ModifierKeys.Shift;
+        Assert.True(h.Key(Key.Enter));
+        Assert.Equal("C2", h.Vm.ActiveAddress);
+        Assert.True(h.Key(Key.Tab));
+        Assert.Equal("B2", h.Vm.ActiveAddress);
+        h.Modifiers = ModifierKeys.None;
+        h.Type("x");
+        h.Modifiers = ModifierKeys.Shift;
+        h.EditorKey(Key.Enter); // commits and moves up
+        Assert.Equal("x", h.Vm.Workbook.GetInput("B2"));
+        Assert.Equal("B1", h.Vm.ActiveAddress);
+    });
+
+    [Fact]
+    public void ShiftArrowFromTheModifierSeam_ExtendsTheSelection_AndCtrlTypingDoesNotStartAnEdit() => RunSta(() =>
+    {
+        using var h = new Host();
+        h.Modifiers = ModifierKeys.Shift;
+        Assert.True(h.Key(Key.Right));
+        Assert.Equal("B1", h.Vm.ActiveAddress);
+        Assert.Equal(CellAddress.Parse("A1"), h.Vm.SelectionAnchor); // extended, not moved
+        h.Modifiers = ModifierKeys.Control;
+        Assert.False(h.Type("x"));
+        Assert.False(h.Vm.IsEditing);
     });
 
     [Fact]

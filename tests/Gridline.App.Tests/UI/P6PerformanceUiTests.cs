@@ -16,6 +16,8 @@ namespace Gridline.App.Tests.UI;
 [Trait("Category", "Performance")]
 public sealed class P6PerformanceUiTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly ITestOutputHelper _output = UiLog.Attach(output);
+
 #if DEBUG
     private const string? ReleaseOnly = "§12 budgets are defined for Release builds";
 #else
@@ -67,7 +69,7 @@ public sealed class P6PerformanceUiTests(ITestOutputHelper output) : IDisposable
         runs.Sort();
         double median = runs[Runs / 2];
 
-        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+        _output.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"P-6 warm-up {warmUp.TotalMilliseconds:F0} ms; runs {string.Join(", ", runs.Select(r => r.ToString("F0", CultureInfo.InvariantCulture)))} ms; median {median:F0} ms"));
         Assert.True(median <= Budget.TotalMilliseconds, $"P-6 median {median:F0} ms exceeds {Budget.TotalMilliseconds} ms");
     }

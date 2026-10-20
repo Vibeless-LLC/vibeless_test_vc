@@ -1,3 +1,4 @@
+using Xunit.Abstractions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Input;
@@ -17,8 +18,10 @@ namespace Gridline.App.Tests.UI;
 /// </summary>
 [Collection(UiCollection.Name)]
 [Trait("Category", "UI")]
-public sealed class PhaseStoryUiTests : IDisposable
+public sealed class PhaseStoryUiTests(ITestOutputHelper output) : IDisposable
 {
+    private readonly ITestOutputHelper _output = UiLog.Attach(output);
+
     private const int AutosaveMs = 500;
     private readonly string _dir = TestSupport.NewTempDirectory();
 
