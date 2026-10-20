@@ -4,20 +4,13 @@
 using Gridline.Core;
 using Gridline.Core.Addressing;
 
-namespace Gridline.Core.Commands
-{
-    /// <summary>Stand-in for the still-empty Core Commands namespace, so the Commands side of the rules has a type
-    /// to be detected. It lives in the test assembly, never in Gridline.Core.</summary>
-    public static class CommandsMarker { public static int Id() => 1; }
-}
-
 namespace Gridline.Architecture.Tests.RuleViolations.Bad.Addressing
 {
     public class UsesParsing { public object P() => Gridline.Core.Parsing.FormulaParser.Parse("=1", null); }
     public class UsesEvaluation { public object P() => Gridline.Core.Evaluation.Coercion.ToText(CellValue.Blank); }
     public class UsesFunctions { public object P() => Gridline.Core.Functions.BuiltInFunctionTable.Default; }
     public class UsesDependencies { public object P() => new Gridline.Core.Dependencies.DependencyGraph(); }
-    public class UsesCommands { public int P() => Gridline.Core.Commands.CommandsMarker.Id(); }
+    public class UsesCommands { public object P() => new Gridline.Core.Commands.UndoHistory(1); }
     public class UsesRootType { public object P() => new Workbook(); }
 }
 
@@ -26,26 +19,26 @@ namespace Gridline.Architecture.Tests.RuleViolations.Bad.Parsing
     public class UsesEvaluation { public object P() => Gridline.Core.Evaluation.Coercion.ToText(CellValue.Blank); }
     public class UsesFunctions { public object P() => Gridline.Core.Functions.BuiltInFunctionTable.Default; }
     public class UsesDependencies { public object P() => new Gridline.Core.Dependencies.DependencyGraph(); }
-    public class UsesCommands { public int P() => Gridline.Core.Commands.CommandsMarker.Id(); }
+    public class UsesCommands { public object P() => new Gridline.Core.Commands.UndoHistory(1); }
 }
 
 namespace Gridline.Architecture.Tests.RuleViolations.Bad.Evaluation
 {
     public class UsesDependencies { public object P() => new Gridline.Core.Dependencies.DependencyGraph(); }
-    public class UsesCommands { public int P() => Gridline.Core.Commands.CommandsMarker.Id(); }
+    public class UsesCommands { public object P() => new Gridline.Core.Commands.UndoHistory(1); }
 }
 
 namespace Gridline.Architecture.Tests.RuleViolations.Bad.Functions
 {
     public class UsesParsing { public object P() => Gridline.Core.Parsing.FormulaParser.Parse("=1", null); }
     public class UsesDependencies { public object P() => new Gridline.Core.Dependencies.DependencyGraph(); }
-    public class UsesCommands { public int P() => Gridline.Core.Commands.CommandsMarker.Id(); }
+    public class UsesCommands { public object P() => new Gridline.Core.Commands.UndoHistory(1); }
 }
 
 namespace Gridline.Architecture.Tests.RuleViolations.Bad.Dependencies
 {
     public class UsesFunctions { public object P() => Gridline.Core.Functions.BuiltInFunctionTable.Default; }
-    public class UsesCommands { public int P() => Gridline.Core.Commands.CommandsMarker.Id(); }
+    public class UsesCommands { public object P() => new Gridline.Core.Commands.UndoHistory(1); }
 }
 
 // ---- allowed dependencies: must NOT be flagged (negative controls) ----

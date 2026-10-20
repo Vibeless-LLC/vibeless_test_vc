@@ -161,6 +161,27 @@ public sealed class GridlineFileTests : IDisposable
         Assert.Equal(20.0, wb.GetValue("B1").Number);
     }
 
+    // §9.3, §8.2: a freshly loaded workbook is clean with an empty history, from a path or from bytes.
+    [Fact]
+    public void Load_IsCleanWithEmptyHistory()
+    {
+        var saved = Sample();
+        Assert.True(saved.IsDirty);
+        GridlineFile.SaveToPath(saved, P("a.gridline"));
+        foreach (var wb in new[] { GridlineFile.LoadFromPath(P("a.gridline")), GridlineSerializer.Deserialize(GridlineSerializer.Serialize(saved)) })
+        {
+            Assert.False(wb.IsDirty);
+            Assert.False(wb.CanUndo);
+            Assert.False(wb.CanRedo);
+            Assert.False(wb.Undo());
+            wb.SetCell("A1", "1");
+            Assert.True(wb.IsDirty);
+            Assert.True(wb.Undo());
+            Assert.False(wb.IsDirty);
+            Assert.Equal("10", wb.GetInput("A1"));
+        }
+    }
+
     [Fact]
     public void Load_MissingFile_ThrowsGridlineIOException()
     {

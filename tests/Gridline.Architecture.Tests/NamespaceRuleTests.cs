@@ -64,13 +64,14 @@ public class NamespaceRuleTests
             }
     }
 
-    // Guard against vacuous namespace rules: every namespace except Commands (still empty) has types.
+    // Guard against vacuous namespace rules: every rule target namespace has types (Commands since Phase 3 Task 3).
     [Theory]
     [InlineData("Addressing")]
     [InlineData("Parsing")]
     [InlineData("Evaluation")]
     [InlineData("Functions")]
     [InlineData("Dependencies")]
+    [InlineData("Commands")]
     public void S3_3_RuleTargetNamespaces_AreNotEmpty(string ns) =>
         Assert.NotEmpty(Types.InAssembly(CoreAsm).That().ResideInNamespaceStartingWith(Ns(ns)).GetTypes());
 

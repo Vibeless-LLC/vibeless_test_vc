@@ -151,4 +151,18 @@ public class PublicApiShapeTests
         Assert.Equal(typeof(EventHandler<CellsChangedEventArgs>), e.EventHandlerType);
         Assert.True(e.AddMethod!.IsPublic && !e.AddMethod.IsStatic);
     }
+
+    // §9.1 Phase 2 (undo and dirty tracking, §9.3); CopyPaste arrives with its own task.
+    [Fact]
+    public void Workbook_HasThePhase2UndoSurface()
+    {
+        var t = typeof(Workbook);
+        AssertMethod(t, "ApplyBatch", isStatic: false, typeof(void), typeof(IReadOnlyList<KeyValuePair<string, string>>));
+        AssertInstanceGetOnly(t, "CanUndo", typeof(bool));
+        AssertInstanceGetOnly(t, "CanRedo", typeof(bool));
+        AssertMethod(t, "Undo", isStatic: false, typeof(bool));
+        AssertMethod(t, "Redo", isStatic: false, typeof(bool));
+        AssertInstanceGetOnly(t, "IsDirty", typeof(bool));
+        AssertMethod(t, "MarkSaved", isStatic: false, typeof(void));
+    }
 }
