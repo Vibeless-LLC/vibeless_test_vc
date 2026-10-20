@@ -106,15 +106,45 @@ public class LoaderTests
     [Fact] public void Fail_VersionMissing() => Bad("{\"format\":\"gridline\",\"names\":{},\"cells\":[]}");
     [Fact] public void Fail_VersionString() => Bad(Doc(version: "\"1\""));
     [Fact] public void Fail_VersionFractional() => Bad(Doc(version: "1.5"));
-    [Fact] public void Fail_VersionExponentForm_R28() => Bad(Doc(version: "1e0"));
-    [Fact] public void Fail_VersionDecimalOne() => Bad(Doc(version: "1.0"));
+    [Fact] public void Fail_VersionFractionalExponent() => Bad(Doc(version: "15e-1"));
+    [Fact] public void Fail_VersionIntegralAboveOne() => Bad(Doc(version: "2.0"));
+    [Fact] public void Fail_VersionHugeExponent() => Bad(Doc(version: "1e400"));
+
+    // R54 (§8.2): any integral JSON number is the integer it denotes.
+    [Theory]
+    [InlineData("1.0")]
+    [InlineData("1e0")]
+    [InlineData("1E+0")]
+    [InlineData("10e-1")]
+    [InlineData("0.1e1")]
+    public void IntegralVersionForms_AreVersion1(string version) =>
+        Assert.Equal("5", Load(Doc("[[\"A1\",\"5\"]]", version: version)).GetInput("A1"));
+
+    [Fact]
+    public void VersionIntegralAboveOne_IsUnsupported()
+    {
+        var ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "2.0")));
+        Assert.Contains("unsupported version", ex.Message);
+        ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "1e400")));
+        Assert.Contains("unsupported version", ex.Message);
+    }
     [Fact] public void Fail_VersionZero() => Bad(Doc(version: "0"));
     [Fact] public void Fail_VersionNegative() => Bad(Doc(version: "-1"));
     [Fact] public void Fail_VersionNull() => Bad(Doc(version: "null"));
-    [Fact] public void Fail_NamesMissing() => Bad("{\"format\":\"gridline\",\"version\":1,\"cells\":[]}");
+    // R54 (§8.2): a missing "names" or "cells" key counts as empty.
+    [Fact]
+    public void NamesMissing_CountsAsEmpty() =>
+        Assert.Equal("1", Load("{\"format\":\"gridline\",\"version\":1,\"cells\":[[\"A1\",\"1\"]]}").GetInput("A1"));
+
+    [Fact]
+    public void CellsMissing_CountsAsEmpty() =>
+        Assert.Empty(Load("{\"format\":\"gridline\",\"version\":1,\"names\":{}}").GetUsedAddresses());
+
+    [Fact]
+    public void NamesAndCellsMissing_CountAsEmpty() =>
+        Assert.Empty(Load("{\"format\":\"gridline\",\"version\":1}").GetUsedAddresses());
     [Fact] public void Fail_NamesNotObject() => Bad(Doc(names: "[]"));
     [Fact] public void Fail_NamesNonEmpty_Phase1() => Bad(Doc(names: "{\"X\":\"A1\"}"));
-    [Fact] public void Fail_CellsMissing() => Bad("{\"format\":\"gridline\",\"version\":1,\"names\":{}}");
     [Fact] public void Fail_CellsNotArray() => Bad(Doc(cells: "{}"));
     [Fact] public void Fail_CellsNull() => Bad(Doc(cells: "null"));
     [Fact] public void Fail_EntryNotArray() => Bad(Doc("[\"A1\"]"));
@@ -154,7 +184,18 @@ public class LoaderTests
     [Fact] public void Fail_AddressColumnTooLarge() => Bad(Doc("[[\"XFD1\",\"1\"]]"));
     [Fact] public void Fail_AddressColumnJustPastZZ() => Bad(Doc("[[\"AAA1\",\"1\"]]"));
     [Fact] public void Fail_AddressDuplicate() => Bad(Doc("[[\"A1\",\"1\"],[\"B1\",\"2\"],[\"A1\",\"3\"]]"));
-    [Fact] public void Fail_InputEmpty() => Bad(Doc("[[\"A1\",\"\"]]"));
+    // R54 (§8.2): an empty input is a blank cell and is skipped; a duplicate address still fails.
+    [Fact]
+    public void EmptyInput_IsBlankAndSkipped()
+    {
+        var wb = Load(Doc("[[\"A1\",\"\"],[\"B1\",\"=A1+1\"]]"));
+        Assert.Equal(["B1"], wb.GetUsedAddresses());
+        Assert.Equal("", wb.GetInput("A1"));
+        Assert.Equal("N:1", wb.GetValue("B1").ToCanonicalString());
+    }
+
+    [Fact] public void Fail_InputEmpty_DuplicateAddress() => Bad(Doc("[[\"A1\",\"\"],[\"A1\",\"x\"]]"));
+    [Fact] public void Fail_InputEmpty_DuplicateAddressBothEmpty() => Bad(Doc("[[\"a1\",\"\"],[\"A1\",\"\"]]"));
     [Fact] public void Fail_InputTooLong() => Bad(Doc("[[\"A1\",\"" + new string('x', Workbook.MaxInputLength + 1) + "\"]]"));
 
     [Fact]

@@ -110,18 +110,29 @@ public class TokenizerTests
         => Assert.Equal([TokenKind.CellRef, TokenKind.Colon, TokenKind.CellRef, TokenKind.End], Kinds("A1:B2"));
 
     [Theory]
-    [InlineData("#N/A", "#N/A")]
-    [InlineData("#n/a", "#N/A")]
-    [InlineData("#div/0!", "#DIV/0!")]
-    [InlineData("#Name?", "#NAME?")]
-    [InlineData("#PARSE!", "#PARSE!")]
-    public void ErrorLiteralsAreNormalised(string src, string canonical)
+    [InlineData("#N/A")]
+    [InlineData("#DIV/0!")]
+    [InlineData("#NAME?")]
+    [InlineData("#VALUE!")]
+    [InlineData("#REF!")]
+    [InlineData("#NUM!")]
+    [InlineData("#CIRC!")]
+    [InlineData("#PARSE!")]
+    public void ErrorLiteralsWrittenExactly(string src)
     {
         var t = Ok(src)[0];
         Assert.Equal(TokenKind.Error, t.Kind);
-        Assert.Equal(canonical, t.Text);
+        Assert.Equal(src, t.Text);
         Assert.Equal(src, t.Lexeme);
     }
+
+    // R52 (§5.1 "written exactly"): any other letter case is a tokenizer error, so the formula is #PARSE!.
+    [Theory]
+    [InlineData("#n/a")]
+    [InlineData("#div/0!")]
+    [InlineData("#Name?")]
+    [InlineData("#Parse!")]
+    public void ErrorLiteralInOtherCaseIsTokenizerError(string src) => Fails(src, 0);
 
     [Theory]
     [InlineData("#FOO!")]
@@ -169,7 +180,13 @@ public class TokenizerTests
         => Assert.Equal([TokenKind.Number, TokenKind.Name, TokenKind.End], Kinds("1e"));
 
     [Fact]
-    public void NonFiniteNumberIsError() => Fails("1e999", 0);
+    public void NonFiniteNumberTokenizes_R53()
+    {
+        var t = Ok("1e999")[0];
+        Assert.Equal(TokenKind.Number, t.Kind);
+        Assert.Equal(double.PositiveInfinity, t.Number);
+        Assert.Equal("1e999", t.Lexeme);                                  // kept for §5.5 printing
+    }
 
     [Fact]
     public void AllOperatorsAndPunctuation()

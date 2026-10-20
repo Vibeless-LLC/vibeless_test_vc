@@ -19,8 +19,15 @@ public class FormulaEvaluatorTests
         Assert.Equal(N(1.5), Run("1.5"));
         Assert.Equal(T("hi \"x\""), Run("\"hi \"\"x\"\"\""));
         Assert.Equal(B(true), Run("true"));
-        Assert.Equal(E(ErrorCodes.NA), Run("#n/a"));
+        Assert.Equal(E(ErrorCodes.NA), Run("#N/A"));
     }
+
+    // R53 (§4.4): an overflowing number literal is valid syntax and evaluates to #NUM!.
+    [Theory]
+    [InlineData("1e999")]
+    [InlineData("-1E999")]
+    [InlineData("1e999-1e999")]
+    public void NonFiniteLiteral_IsNum(string formula) => Assert.Equal(E(ErrorCodes.Num), Run(formula));
 
     [Fact]
     public void CellReference_ReturnsCellValue()

@@ -23,8 +23,9 @@ public static class Tokenizer
             {
                 i = ScanNumber(s, i);
                 string lex = s.Substring(start, i - start);
+                // R53 (§4.4): an overflowing literal such as 1e999 is valid syntax; its value is +inf, which the
+                // evaluator turns into #NUM!. The lexeme is kept for §5.5 printing.
                 double v = double.Parse(lex, NumberStyles.Float, CultureInfo.InvariantCulture);
-                if (!double.IsFinite(v)) return TokenizeResult.Fail($"Number '{lex}' is out of range.", start);
                 tokens.Add(new Token(TokenKind.Number, start, lex, Number: v));
             }
             else if (c == '"')
@@ -51,8 +52,9 @@ public static class Tokenizer
                 i++;
                 while (i < s.Length && (IsAsciiLetter(s[i]) || IsDigit(s[i]) || s[i] is '/' or '!' or '?')) i++;
                 string lex = s.Substring(start, i - start);
-                if (!ErrorCodes.TryGetCanonical(lex, out var canonical)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
-                tokens.Add(new Token(TokenKind.Error, start, lex, Text: canonical));
+                // R52 (§5.1 "written exactly"): case-sensitive, so #n/a is a tokenizer error (#PARSE!).
+                if (!ErrorCodes.IsKnown(lex)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
+                tokens.Add(new Token(TokenKind.Error, start, lex, Text: lex));
             }
             else if (c == '$' || IsAsciiLetter(c))
             {

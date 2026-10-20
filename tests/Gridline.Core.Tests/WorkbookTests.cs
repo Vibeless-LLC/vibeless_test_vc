@@ -27,6 +27,12 @@ public class WorkbookTests
     [InlineData("=ROUND(2.675,2)", "N:2.68")]
     [InlineData("=A1", "E:#CIRC!")]
     [InlineData("=1+", "E:#PARSE!")]
+    [InlineData("=1e999", "E:#NUM!")]                // R53
+    [InlineData("=#n/a", "E:#PARSE!")]               // R52
+    [InlineData("=#N/A", "E:#N/A")]
+    [InlineData("=SUM(1,1e999)", "E:#NUM!")]         // R53
+    [InlineData("=IF(TRUE,1,1e999)", "N:1")]         // R53: untaken branch is never evaluated
+    [InlineData("=IFERROR(1e999,7)", "N:7")]
     public void WorkedExamples_ThroughWorkbook(string input, string expected)
     {
         var wb = new Workbook();
