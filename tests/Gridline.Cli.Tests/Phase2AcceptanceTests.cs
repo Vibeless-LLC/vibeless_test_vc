@@ -22,7 +22,30 @@ public sealed class Phase2AcceptanceTests : IDisposable
 
     private string P(string name) => Path.Combine(_dir, name);
 
-    private static (int code, string stdout, string stderr, byte[] stdoutBytes) Gridline(byte[]? stdin, params string[] args)
+    // §8.1, §10.1: SaveToPath with a bare file name (no directory) resolves against the child's working directory.
+    // The test host's own current directory is never changed.
+    [Fact]
+    public void Set_BareOutFileName_LandsInChildWorkingDirectory()
+    {
+        string work = P("bare-wd");
+        Directory.CreateDirectory(work);
+        var (code2, _, err2, _) = GridlineIn(work, Encoding.UTF8.GetBytes("SET A1 5\nSAVE bare.gridline\n"), "script");
+        Assert.True(code2 == 0, err2);
+        string saved = Path.Combine(work, "bare.gridline");
+        Assert.True(File.Exists(saved));
+        Assert.Contains("[\"A1\", \"5\"]", File.ReadAllText(saved));
+        Assert.Empty(Directory.GetFiles(work, "*.tmp*"));
+
+        var (code3, o3, err3, _) = GridlineIn(work, null, "set", "bare.gridline", "B1", "7", "--out", "bare2.gridline");
+        Assert.True(code3 == 0, err3);
+        Assert.Empty(o3);
+        Assert.True(File.Exists(Path.Combine(work, "bare2.gridline")));
+    }
+
+    private static (int code, string stdout, string stderr, byte[] stdoutBytes) Gridline(byte[]? stdin, params string[] args) =>
+        GridlineIn(Path.GetTempPath(), stdin, args); // never depend on the current directory
+
+    private static (int code, string stdout, string stderr, byte[] stdoutBytes) GridlineIn(string workingDirectory, byte[]? stdin, params string[] args)
     {
         var psi = new ProcessStartInfo("dotnet")
         {
@@ -30,7 +53,7 @@ public sealed class Phase2AcceptanceTests : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            WorkingDirectory = Path.GetTempPath(), // never depend on the current directory
+            WorkingDirectory = workingDirectory,
         };
         psi.ArgumentList.Add(typeof(CliApp).Assembly.Location);
         foreach (string a in args) psi.ArgumentList.Add(a);

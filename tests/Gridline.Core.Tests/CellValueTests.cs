@@ -25,6 +25,22 @@ public class CellValueTests
         Assert.False(ErrorCodes.IsKnown(null!));
     }
 
+    // §8.3: EscapeText escapes exactly backslash, tab, LF, CR.
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("plain é €", "plain é €")]
+    [InlineData("a\\b", "a\\\\b")]
+    [InlineData("a\tb", "a\\tb")]
+    [InlineData("a\nb", "a\\nb")]
+    [InlineData("a\rb", "a\\rb")]
+    [InlineData("\\\t\n\r", "\\\\\\t\\n\\r")]
+    [InlineData("\\t", "\\\\t")]
+    public void EscapeText_EscapesBackslashTabLfCr(string input, string expected)
+    {
+        Assert.Equal(expected, CellValue.EscapeText(input));
+        Assert.Equal("T:" + expected, CellValue.FromText(input).ToCanonicalString());
+    }
+
     [Fact]
     public void Blank_IsBlank()
     {

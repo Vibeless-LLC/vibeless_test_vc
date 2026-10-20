@@ -16,6 +16,9 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
 
     public bool AnyError { get; private set; }
 
+    /// <summary>Reports a line that could not be executed (e.g. over the length cap) as an ERR line.</summary>
+    public void RejectLine(string message) => Fail(message);
+
     public void Execute(string line)
     {
         if (line.Length > 0 && line[^1] == '\r') line = line[..^1]; // R31 (no-op if the reader already split CRLF)
