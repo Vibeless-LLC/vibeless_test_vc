@@ -24,4 +24,10 @@ public enum StructureAxis
 /// <param name="Removed">For a delete, every cell with input inside the deleted span, at its original position, with
 /// its exact input as <see cref="CellEdit.OldInput"/> and "" as <see cref="CellEdit.NewInput"/>; empty for an insert.</param>
 public sealed record StructureEdit(
-    StructureAxis Axis, bool IsInsert, int Start, int Count, ImmutableArray<CellEdit> Rewrites, ImmutableArray<CellEdit> Removed);
+    StructureAxis Axis, bool IsInsert, int Start, int Count, ImmutableArray<CellEdit> Rewrites, ImmutableArray<CellEdit> Removed)
+{
+    /// <summary>The stable internal id of the edited sheet (CR1.1, D-52; R84 ruling P5-2). Rewrites on the edited sheet are
+    /// at their position after the edit; rewrites on other sheets (qualified references to the edited sheet) are where
+    /// they are, since their cells do not move. Removed cells are all on the edited sheet.</summary>
+    internal int Sheet { get; init; }
+}

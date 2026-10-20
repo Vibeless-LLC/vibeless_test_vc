@@ -27,4 +27,11 @@ public interface IRecalcTarget : ICellValueProvider, INameResolver
 
     /// <summary>Stores the value computed for a formula cell.</summary>
     void SetComputedValue(CellAddress address, CellValue value);
+
+    /// <summary>
+    /// The target of the sheet with the stable internal id <paramref name="sheet"/> (CR1.1, D-52), or null when no such
+    /// sheet exists. <see cref="DependencyGraph"/> reads and writes every formula cell through the target of its sheet.
+    /// The default is a single-sheet target: sheet 0 is this target.
+    /// </summary>
+    internal IRecalcTarget? ForSheet(int sheet) => sheet == 0 ? this : null;
 }

@@ -6,7 +6,7 @@ using Gridline.Core.Dependencies;
 namespace Gridline.Core;
 
 // The mutation path shared by SetCell, ApplyBatch, CopyPaste, DefineName, DeleteName, Undo and Redo (§9.2, §9.3; structure
-// steps take their own path in Workbook.Structure.cs); the undo stack itself
+// steps take their own path in Workbook.Structure.cs, sheet steps in Workbook.Sheets.cs); the undo stack itself
 // lives in Gridline.Core.Commands (UndoHistory, UndoStep).
 public sealed partial class Workbook
 {
@@ -16,25 +16,28 @@ public sealed partial class Workbook
     /// once the last edit wins; edits equal to the current input are dropped, and if none remain (including an empty
     /// batch) the call is a no-op with no step and no event (LastRecalc becomes 0, as for a no-op SetCell, R24).
     /// </summary>
-    /// <exception cref="ArgumentException">The list or an address or input is null, an address is invalid or a
-    /// range, or an input is longer than <see cref="MaxInputLength"/>. Nothing is applied.</exception>
+    /// <remarks>Addresses may be qualified (R83); duplicates compare the sheet and the canonical address, so <c>A1</c> and
+    /// <c>Sheet1!A1</c> on active Sheet1 are the same cell.</remarks>
+    /// <exception cref="ArgumentException">The list or an address or input is null, an address is invalid, a range or
+    /// names an unknown sheet, or an input is longer than <see cref="MaxInputLength"/>. Nothing is applied.</exception>
     public void ApplyBatch(IReadOnlyList<KeyValuePair<string, string>> edits)
     {
         ArgumentNullException.ThrowIfNull(edits);
-        var last = new Dictionary<int, (CellAddress Cell, string Input)>(edits.Count); // first-seen order, last value
+        var last = new Dictionary<long, (Sheet Sheet, CellAddress Cell, string Input)>(edits.Count); // first-seen order, last value
         for (int i = 0; i < edits.Count; i++)
         {
             var (address, input) = edits[i];
-            var cell = ParseAddress(address, nameof(edits));
+            var (sheet, cell) = ResolveAddress(address, nameof(edits));
             ValidateInput(input, nameof(edits));
-            last[CellKey.Pack(cell)] = (cell, input);
+            last[SheetCellKey.Pack(sheet.Id, cell)] = (sheet, cell, input);
         }
 
         var changes = ImmutableArray.CreateBuilder<CellEdit>(last.Count);
-        foreach (var (key, (cell, input)) in last)
+        foreach (var (sheet, cell, input) in last.Values)
         {
-            string current = _cells.TryGetValue(key, out var e) ? e.Input : "";
-            if (!string.Equals(current, input, StringComparison.Ordinal)) changes.Add(new CellEdit(cell, current, input));
+            string current = sheet.Cells.TryGetValue(CellKey.Pack(cell), out var e) ? e.Input : "";
+            if (!string.Equals(current, input, StringComparison.Ordinal))
+                changes.Add(new CellEdit(cell, current, input) { Sheet = sheet.Id });
         }
         if (changes.Count == 0)
         {
@@ -67,6 +70,13 @@ public sealed partial class Workbook
     {
         var step = _history.PeekUndo();
         if (step is null) return false;
+        if (step.SheetInsert is not null)
+        {
+            var (sheetResult, sheetChanged) = ApplySheetInsert(step, forward: false);
+            _history.CompleteUndo();
+            FinishSheetStep(sheetResult, sheetChanged);
+            return true;
+        }
         if (step.Structure is not null)
         {
             var (structureResult, changed) = ApplyStructure(step, forward: false);
@@ -85,6 +95,13 @@ public sealed partial class Workbook
     {
         var step = _history.PeekRedo();
         if (step is null) return false;
+        if (step.SheetInsert is not null)
+        {
+            var (sheetResult, sheetChanged) = ApplySheetInsert(step, forward: true);
+            _history.CompleteRedo();
+            FinishSheetStep(sheetResult, sheetChanged);
+            return true;
+        }
         if (step.Structure is not null)
         {
             var (structureResult, changed) = ApplyStructure(step, forward: true);
@@ -112,8 +129,9 @@ public sealed partial class Workbook
     {
         LastRecalc = new RecalcStats(result.EvaluatedFormulaCount);
         var handler = CellsChanged;
-        if (handler is null || (edits.Length == 0 && result.ChangedCells.Count == 0)) return;
-        handler(this, new CellsChangedEventArgs(ChangedAddresses(edits, result.ChangedCells)));
+        if (handler is null || (edits.Length == 0 && result.ChangedKeys.Count == 0)) return;
+        var addresses = ChangedAddresses(edits, result.ChangedKeys);
+        if (addresses.Length != 0) handler(this, new CellsChangedEventArgs(addresses));
     }
 
     /// <summary>
@@ -131,24 +149,28 @@ public sealed partial class Workbook
         int n = edits.Length;
         // Pure; nothing is mutated yet. A formula keeps the cell's old value until recalc writes the new one, which is
         // what RecalcResult.ChangedCells compares against (RecalcResult contract).
+        var sheets = new Sheet[n];
         var olds = new Entry?[n];
         var news = new Entry?[n];
         for (int i = 0; i < n; i++)
         {
             string input = forward ? edits[i].NewInput : edits[i].OldInput;
-            _cells.TryGetValue(CellKey.Pack(edits[i].Address), out olds[i]);
+            sheets[i] = _sheetsById.TryGetValue(edits[i].Sheet, out var sheet)
+                ? sheet
+                : throw new InvalidOperationException($"The sheet of {edits[i].Address} no longer exists.");
+            sheets[i].Cells.TryGetValue(CellKey.Pack(edits[i].Address), out olds[i]);
             news[i] = input.Length == 0 ? null : CreateEntry(input, olds[i]?.Value ?? CellValue.Blank);
         }
-        CellAddress[] changed;
+        long[] changed;
         if (n == 1)
         {
-            _changedOne[0] = edits[0].Address;
+            _changedOne[0] = SheetCellKey.Pack(edits[0].Sheet, edits[0].Address);
             changed = _changedOne;
         }
         else
         {
-            changed = new CellAddress[n];
-            for (int i = 0; i < n; i++) changed[i] = edits[i].Address;
+            changed = new long[n];
+            for (int i = 0; i < n; i++) changed[i] = SheetCellKey.Pack(edits[i].Sheet, edits[i].Address);
         }
 
         int m = nameEdits.Length;
@@ -160,7 +182,8 @@ public sealed partial class Workbook
             var definition = forward ? nameEdits[i].After : nameEdits[i].Before;
             _names.TryGetValue(nameEdits[i].Name, out oldNames[i]);
             newNames[i] = definition is { } d ? CreateNameEntry(d) : null;
-            if (!string.Equals(oldNames[i]?.RefersTo, newNames[i]?.RefersTo, StringComparison.Ordinal))
+            if (!string.Equals(oldNames[i]?.RefersTo, newNames[i]?.RefersTo, StringComparison.Ordinal)
+                || oldNames[i]?.Definition.Sheet != newNames[i]?.Definition.Sheet) // P5-1: the same text on another sheet
                 (changedNames ??= []).Add(nameEdits[i].Name);
         }
 
@@ -173,22 +196,20 @@ public sealed partial class Workbook
             for (int i = 0; i < n; i++)
             {
                 touched = i + 1;
-                SetEntry(edits[i].Address, olds[i], news[i]);
+                SetEntry(sheets[i], edits[i].Address, olds[i], news[i]);
             }
             for (int i = 0; i < m; i++)
             {
                 touchedNames = i + 1;
                 SetNameEntry(nameEdits[i].Name, newNames[i]);
             }
-            return changedNames is null
-                ? _graph.Recalculate(changed, _target, _functions)
-                : _graph.Recalculate(changed, changedNames, _target, _functions);
+            return _graph.Recalculate(changed, changedNames, null, _target, _functions);
         }
         catch
         {
             for (int i = _rollback.Count - 1; i >= 0; i--) _rollback[i].Entry.Value = _rollback[i].OldValue;
             for (int i = touchedNames - 1; i >= 0; i--) SetNameEntry(nameEdits[i].Name, oldNames[i]);
-            for (int i = touched - 1; i >= 0; i--) SetEntry(edits[i].Address, news[i], olds[i]);
+            for (int i = touched - 1; i >= 0; i--) SetEntry(sheets[i], edits[i].Address, news[i], olds[i]);
             throw;
         }
         finally
@@ -201,10 +222,10 @@ public sealed partial class Workbook
 
     /// <summary>Replaces a cell's entry <paramref name="from"/> → <paramref name="to"/> (null = empty) and its edges.
     /// Idempotent, so the rollback may also replay a cell whose forward replacement threw part-way.</summary>
-    private void SetEntry(CellAddress cell, Entry? from, Entry? to)
+    private void SetEntry(Sheet sheet, CellAddress cell, Entry? from, Entry? to)
     {
-        if (to is null) _cells.Remove(CellKey.Pack(cell));
-        else _cells[CellKey.Pack(cell)] = to;
-        if (from?.Formula is not null || to?.Formula is not null) _graph.SetFormula(cell, to?.Formula);
+        if (to is null) sheet.Cells.Remove(CellKey.Pack(cell));
+        else sheet.Cells[CellKey.Pack(cell)] = to;
+        if (from?.Formula is not null || to?.Formula is not null) _graph.SetFormula(sheet.Id, cell, to?.Formula);
     }
 }

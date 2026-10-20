@@ -20,7 +20,8 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
     /// propagates it.</summary>
     public bool IsReference(int index) => Unwrap(Node(index)) switch
     {
-        CellRefNode or RangeNode => true,
+        CellRefNode r => context.SheetOf(r.Sheet) is not null, // R82: a reference to a missing sheet is #REF!
+        RangeNode r => context.SheetOf(r.Sheet) is not null,
         NameNode n => NameError(n, out _) is null,
         _ => false,
     };
@@ -28,13 +29,15 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
     /// <summary>§9.6, §5.1: an undefined name gives #NAME? and a deleted target #REF!, also where a reference is required.</summary>
     public bool TryGetReferenceError(int index, out CellValue error)
     {
-        if (Unwrap(Node(index)) is NameNode n && NameError(n, out _) is { } e)
+        CellValue? e = Unwrap(Node(index)) switch
         {
-            error = e;
-            return true;
-        }
-        error = default;
-        return false;
+            NameNode n => NameError(n, out _),
+            CellRefNode r when context.SheetOf(r.Sheet) is null => Errors.Ref, // R82: missing sheet
+            RangeNode r when context.SheetOf(r.Sheet) is null => Errors.Ref,
+            _ => null,
+        };
+        error = e ?? default;
+        return e is not null;
     }
 
     /// <summary>Resolves a name argument: null when it has a live target (<paramref name="target"/>), otherwise its
@@ -42,7 +45,8 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
     private CellValue? NameError(NameNode n, out NameTarget target)
     {
         if (!context.TryResolveName(n.Name, out target)) return Errors.Name;
-        return target.Kind == NameTargetKind.Invalid ? Errors.Ref : null;
+        if (target.Kind == NameTargetKind.Invalid) return Errors.Ref;
+        return context.SheetOf(target.Sheet) is null ? Errors.Ref : null; // its sheet no longer exists
     }
 
     /// <summary>
@@ -60,9 +64,9 @@ internal sealed class FunctionArguments(EvaluationContext context, IReadOnlyList
 
     public ReferenceValues EnumerateReferenceValues(int index) => Unwrap(Node(index)) switch
     {
-        CellRefNode r => new ReferenceValues(context.Cells, new CellRange(r.Reference.Address, r.Reference.Address)),
-        RangeNode r => new ReferenceValues(context.Cells, new CellRange(r.Start.Address, r.End.Address)),
-        NameNode n when NameError(n, out var t) is null => new ReferenceValues(context.Cells, t.Range),
+        CellRefNode r when context.SheetOf(r.Sheet) is { } p => new ReferenceValues(p, new CellRange(r.Reference.Address, r.Reference.Address)),
+        RangeNode r when context.SheetOf(r.Sheet) is { } p => new ReferenceValues(p, new CellRange(r.Start.Address, r.End.Address)),
+        NameNode n when NameError(n, out var t) is null => new ReferenceValues(context.SheetOf(t.Sheet)!, t.Range),
         _ => throw new InvalidOperationException($"Argument {index} is not a reference."),
     };
 

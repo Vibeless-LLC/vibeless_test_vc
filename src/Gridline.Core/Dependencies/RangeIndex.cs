@@ -32,7 +32,7 @@ internal sealed class RangeIndex
     internal sealed class Entry(CellRange range)
     {
         public CellRange Range { get; } = range;
-        public HashSet<int> Dependents { get; } = [];
+        public HashSet<long> Dependents { get; } = [];
         // Zero-based bounds, cached for the lookup loop.
         public readonly int Left = range.TopLeft.Column - 1, Top = range.TopLeft.Row - 1;
         public readonly int Right = range.BottomRight.Column - 1, Bottom = range.BottomRight.Row - 1;
@@ -54,7 +54,7 @@ internal sealed class RangeIndex
 
     public int RangeCount => _entries.Count;
 
-    public void Add(CellRange range, int dependent)
+    public void Add(CellRange range, long dependent)
     {
         if (!_entries.TryGetValue(range, out var entry))
         {
@@ -89,7 +89,7 @@ internal sealed class RangeIndex
         entry.Dependents.Add(dependent);
     }
 
-    public void Remove(CellRange range, int dependent)
+    public void Remove(CellRange range, long dependent)
     {
         if (!_entries.TryGetValue(range, out var entry) || !entry.Dependents.Remove(dependent)) return;
         if (entry.Dependents.Count > 0) return;
@@ -118,7 +118,7 @@ internal sealed class RangeIndex
     }
 
     /// <summary>Appends every formula that references a range containing the cell (duplicates possible across ranges).</summary>
-    public void CollectDependents(int column, int row, List<int> output)
+    public void CollectDependents(int column, int row, List<long> output)
     {
         int c = column - 1, r = row - 1;
         foreach (int level in _activeLevels)
@@ -130,7 +130,7 @@ internal sealed class RangeIndex
             foreach (var e in bucket)
             {
                 if (c < e.Left || c > e.Right || r < e.Top || r > e.Bottom) continue;
-                foreach (int d in e.Dependents) output.Add(d);
+                foreach (long d in e.Dependents) output.Add(d);
             }
         }
     }

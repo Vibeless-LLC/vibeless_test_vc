@@ -20,6 +20,10 @@ public enum NameTargetKind
 public readonly record struct NameTarget(NameTargetKind Kind, CellRange Range)
 {
     public static NameTarget Invalid => new(NameTargetKind.Invalid, default);
+
+    /// <summary>The sheet the target lies on (CR1.1, CR1.4), resolved with <see cref="ICellValueProvider.ResolveSheet"/>;
+    /// null means the sheet of the formula being evaluated (single-sheet resolvers).</summary>
+    public string? Sheet { get; init; }
 }
 
 /// <summary>

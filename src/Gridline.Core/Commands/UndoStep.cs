@@ -8,11 +8,13 @@ namespace Gridline.Core.Commands;
 /// state and redo reapplies it. Immutable.
 /// </summary>
 /// <remarks>
-/// SetCell, ApplyBatch and CopyPaste steps are pure cell-input edit sets: each touched cell appears once with its prior
+/// SetCell, ApplyBatch and CopyPaste steps are pure cell-input edit sets: each touched cell (sheet and address) appears once with its prior
 /// and new input (enforced by the constructor). DefineName and DeleteName steps (§9.6) carry one <see cref="NameEdit"/>
 /// and no cell edits; the names payload is a list so a later structure edit (§9.5), which may adjust several name
 /// targets at once, records them in the same shape. Insert/delete rows/columns steps (§9.5) carry a
-/// <see cref="StructureEdit"/> whole-sheet restructure payload, the names it adjusted, and no cell edits. The history
+/// <see cref="StructureEdit"/> whole-sheet restructure payload, the names it adjusted, and no cell edits. An AddSheet step
+/// (CR1.3) carries a <see cref="Commands.SheetInsert"/> and the cells that fill the new sheet (none for AddSheet). Every
+/// cell edit names its sheet by stable internal id (<see cref="CellEdit"/>, D-52). The history
 /// (<see cref="UndoHistory"/>) treats steps as opaque, so it needs no change. See DECISIONS.md D-34, D-41 and D-43.
 /// </remarks>
 public sealed class UndoStep
@@ -33,9 +35,9 @@ public sealed class UndoStep
         if (nameEdits.IsDefault) throw new ArgumentNullException(nameof(nameEdits));
         if (cellEdits.Length > 1)
         {
-            var seen = new HashSet<CellAddress>(cellEdits.Length);
+            var seen = new HashSet<(int, CellAddress)>(cellEdits.Length);
             foreach (var edit in cellEdits)
-                if (!seen.Add(edit.Address))
+                if (!seen.Add((edit.Sheet, edit.Address)))
                     throw new ArgumentException($"Cell {edit.Address} appears more than once in one undo step.", nameof(cellEdits));
         }
         if (nameEdits.Length > 0)
@@ -69,11 +71,22 @@ public sealed class UndoStep
         Structure = structure;
     }
 
+    /// <summary>A step that creates a sheet (CR1.3 AddSheet; later ImportInto), with <paramref name="cellEdits"/> filling
+    /// it (each on the new sheet, prior input "") and no name edits (D-52).</summary>
+    internal UndoStep(SheetInsert sheet, ImmutableArray<CellEdit> cellEdits) : this(cellEdits, [])
+    {
+        ArgumentNullException.ThrowIfNull(sheet);
+        foreach (var edit in cellEdits)
+            if (edit.Sheet != sheet.Id)
+                throw new ArgumentException($"Cell {edit.Address} is not on the inserted sheet.", nameof(cellEdits));
+        SheetInsert = sheet;
+    }
+
     private static void RequireDistinct(ImmutableArray<CellEdit> edits, string paramName)
     {
-        var seen = new HashSet<CellAddress>(edits.Length);
+        var seen = new HashSet<(int, CellAddress)>(edits.Length);
         foreach (var edit in edits)
-            if (!seen.Add(edit.Address))
+            if (!seen.Add((edit.Sheet, edit.Address)))
                 throw new ArgumentException($"Cell {edit.Address} appears more than once in one undo step.", paramName);
     }
 
@@ -86,4 +99,7 @@ public sealed class UndoStep
     /// <summary>The insert/delete rows/columns payload (§9.5); null for every other step. When set,
     /// <see cref="CellEdits"/> is empty.</summary>
     public StructureEdit? Structure { get; }
+
+    /// <summary>The sheet this step creates (CR1.3, D-52); null for every other step.</summary>
+    internal SheetInsert? SheetInsert { get; }
 }

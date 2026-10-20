@@ -72,6 +72,46 @@ public static class SheetName
         return RequiresQuoting(name) ? "'" + name.Replace("'", "''", StringComparison.Ordinal) + "'" : name;
     }
 
+    /// <summary>
+    /// Splits an API address string (R83) into its optional sheet prefix and the rest after the <c>!</c>, with the R82
+    /// prefix rules: a quoted prefix <c>'…'</c> uses <c>''</c> for <c>'</c> and must hold a valid sheet name; an unquoted
+    /// prefix must be a valid name that needs no quoting; <c>!</c> follows the prefix immediately. Text without a prefix
+    /// (no leading <c>'</c> and no <c>!</c>) gives a null <paramref name="sheet"/> and <paramref name="rest"/> = the text.
+    /// The rest is not checked. False for a malformed prefix.
+    /// </summary>
+    /// <param name="sheet">The sheet name with quotes removed and <c>''</c> collapsed, or null when unqualified.</param>
+    internal static bool TrySplitQualified(string text, out string? sheet, out string rest)
+    {
+        sheet = null;
+        rest = text;
+        if (text.Length > 0 && text[0] == '\'')
+        {
+            var name = new System.Text.StringBuilder();
+            int i = 1;
+            while (true)
+            {
+                if (i >= text.Length) return false; // unterminated quote
+                if (text[i] == '\'')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '\'') { name.Append('\''); i += 2; continue; }
+                    break; // the closing quote
+                }
+                name.Append(text[i++]);
+            }
+            if (i + 1 >= text.Length || text[i + 1] != '!' || !IsValid(name.ToString())) return false;
+            sheet = name.ToString();
+            rest = text[(i + 2)..];
+            return true;
+        }
+        int bang = text.IndexOf('!');
+        if (bang < 0) return true;
+        var prefix = text.AsSpan(0, bang);
+        if (!IsValid(prefix) || RequiresQuoting(prefix)) return false;
+        sheet = prefix.ToString();
+        rest = text[(bang + 1)..];
+        return true;
+    }
+
     /// <summary>A character an unquoted sheet prefix may contain: <c>[A-Za-z0-9_.]</c>.</summary>
     internal static bool IsBareChar(char c) => IsAsciiLetter(c) || IsDigit(c) || c is '_' or '.';
 

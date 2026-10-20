@@ -44,8 +44,9 @@ public sealed partial class Workbook
             throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}': expected a fully absolute cell or range such as $B$1 or $A$1:$C$10.", nameof(refersTo));
 
         NameDefinition? before = _names.TryGetValue(name, out var current) ? current.Definition : null;
-        var after = new NameDefinition(name, canonical);
-        if (before == after) // ordinal on both: same casing and same canonical refersTo (R60)
+        // Ruling P5-1 (D-52): the unqualified target lies on the active sheet; the binding is part of the definition.
+        var after = new NameDefinition(name, canonical) { Sheet = _active.Id };
+        if (before == after) // ordinal on both: same casing, same canonical refersTo and same sheet (R60)
         {
             LastRecalc = default;
             return;
@@ -91,7 +92,8 @@ public sealed partial class Workbook
     {
         _names.Remove(name);
         if (to is not null) _names.Add(to.Name, to);
-        _graph.SetNameTarget(name, to is { Target.Kind: not NameTargetKind.Invalid } live ? live.Target.Range : null);
+        if (to is { Target.Kind: not NameTargetKind.Invalid } live) _graph.SetNameTarget(name, live.Definition.Sheet, live.Target.Range);
+        else _graph.SetNameTarget(name, null);
     }
 
     /// <summary>Validates the names of a loaded file with the DefineName rules (§9.6): syntax, refersTo (normalised to
