@@ -261,9 +261,7 @@ public sealed class ScriptTests : IDisposable
         int code = CliApp.Run(["script"], new StringReader("GET\nSET A1 1\nGET A1\n"), new FailAfterStream(1), e);
         Assert.Equal(4, code);
         string err = Encoding.UTF8.GetString(e.ToArray());
-        Assert.StartsWith("error: cannot write output: ", err);
-        Assert.DoesNotContain("internal error", err);
-        Assert.Equal(1, err.Count(c => c == '\n'));
+        Assert.Equal("error: cannot write output: broken pipe\n", err);
     }
 
     [Fact]
@@ -273,8 +271,17 @@ public sealed class ScriptTests : IDisposable
         int code = CliApp.Run(["script"], new StringReader("SET A1 1\nGET A1\nGET A1\n"), new FailAfterStream(1), e);
         Assert.Equal(1, code);
         string err = Encoding.UTF8.GetString(e.ToArray());
-        Assert.StartsWith("error: cannot write output: ", err);
-        Assert.DoesNotContain("internal error", err);
+        Assert.Equal("error: cannot write output: broken pipe\n", err);
+    }
+
+    // R31: exit 4 only if an ERR line was delivered; here the failing flush is the one carrying the first ERR.
+    [Fact]
+    public void BrokenPipe_OnFirstErrLineFlush_Exits1()
+    {
+        var e = new MemoryStream();
+        int code = CliApp.Run(["script"], new StringReader("GET\n"), new FailAfterStream(0), e);
+        Assert.Equal(1, code);
+        Assert.Equal("error: cannot write output: broken pipe\n", Encoding.UTF8.GetString(e.ToArray()));
     }
 
     // §10.3: a line longer than MaxInputLength + 64 is discarded up to LF, reported as ERR, and the script continues.
@@ -303,6 +310,41 @@ public sealed class ScriptTests : IDisposable
         var (code, o, _) = Script(line + "\nSET A1 1\nGET A1\n");
         Assert.Equal(0, code);
         Assert.Equal("A1\tN:1\n", o);
+    }
+
+    // R33: cap is 2 x MaxInputLength + 64, not counting one trailing CR.
+    [Fact]
+    public void Setx_With20000Tabs_IsAcceptedAndStored()
+    {
+        string escaped = string.Concat(Enumerable.Repeat(((char)92) + "t", 20000));
+        var (code, o, _) = Script("SETX A1 " + escaped + "\nGET A1\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tT:" + string.Concat(Enumerable.Repeat(((char)92) + "t", 20000)) + "\n", o);
+    }
+
+    [Fact]
+    public void LineOfExactlyMax_Passes_MaxPlusOne_IsErr_AndNextLineRuns()
+    {
+        string atMax = "#" + new string('z', ScriptCommand.MaxLineLength - 1);
+        var (c1, o1, _) = Script(atMax + "\nSET A1 1\nGET A1\n");
+        Assert.Equal(0, c1);
+        Assert.Equal("A1\tN:1\n", o1);
+
+        var (c2, o2, _) = Script(atMax + "z\nSET A1 1\nGET A1\n");
+        Assert.Equal(4, c2);
+        Assert.Equal("ERR\tline too long (limit " + ScriptCommand.MaxLineLength + " characters)\nA1\tN:1\n", o2);
+    }
+
+    [Fact]
+    public void CrlfLineWithContentExactlyMax_Passes()
+    {
+        string atMax = "#" + new string('z', ScriptCommand.MaxLineLength - 1);
+        var (code, o, _) = Script(atMax + "\r\nSET A1 1\r\nGET A1\r\n");
+        Assert.Equal(0, code);
+        Assert.Equal("A1\tN:1\n", o);
+        var (c2, o2, _) = Script(atMax + "z\r\nGET A1\r\n");
+        Assert.Equal(4, c2);
+        Assert.StartsWith("ERR\tline too long", o2);
     }
 
     [Fact]

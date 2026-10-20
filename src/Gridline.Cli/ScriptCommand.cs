@@ -20,6 +20,7 @@ public static class ScriptCommand
         else throw new CliException(ExitCodes.Usage, "usage: gridline script [--file <path>]");
 
         var interpreter = new ScriptInterpreter(wb, ctx);
+        bool errDelivered = false;
         while (true)
         {
             string? line = ReadLfLine(ctx.Stdin, out bool tooLong);
@@ -29,19 +30,20 @@ public static class ScriptCommand
             try
             {
                 ctx.FlushStdout(); // stream per command: output never accumulates
+                errDelivered = interpreter.AnyError; // every ERR so far was in a flush that succeeded
             }
             catch (Exception ex) when (ex is not CliException)
             {
-                // Output failure (e.g. broken pipe), §10.1: 4 if an ERR line was already produced, else 1; never "internal error".
-                throw new CliException(interpreter.AnyError ? ExitCodes.ScriptError : ExitCodes.Usage,
+                // Output failure (e.g. broken pipe), §10.1, R31: 4 only if an ERR line was actually delivered, else 1.
+                throw new CliException(errDelivered ? ExitCodes.ScriptError : ExitCodes.Usage,
                     "cannot write output: " + ex.Message);
             }
         }
         return interpreter.AnyError ? ExitCodes.ScriptError : ExitCodes.Success;
     }
 
-    /// <summary>Longest script line read, in UTF-16 units (§10.3): MaxInputLength plus a 64-character allowance for the command word, address and spaces.</summary>
-    public const int MaxLineLength = Workbook.MaxInputLength + 64;
+    /// <summary>Longest script line, in UTF-16 units, not counting one trailing CR (§10.3, R33): 2 x MaxInputLength + 64. SETX escapes can double the raw length (a tab is 2 characters), and 64 covers the command word, address and spaces.</summary>
+    public const int MaxLineLength = 2 * Workbook.MaxInputLength + 64;
 
     /// <summary>
     /// Reads up to the next LF (R31: TextReader.ReadLine would also split on a lone CR). The CR before LF is stripped by the
@@ -53,16 +55,23 @@ public static class ScriptCommand
         tooLong = false;
         var sb = new System.Text.StringBuilder();
         int count = 0;
+        int last = -1;
         int c;
         while ((c = reader.Read()) >= 0)
         {
-            if (c == '\n') return tooLong ? "" : sb.ToString();
+            if (c == '\n') return Finish(sb, count, last, ref tooLong);
             count++;
+            last = c;
             if (tooLong) continue;
-            if (count > MaxLineLength) { tooLong = true; sb.Clear(); continue; }
+            if (count > MaxLineLength + 1) { tooLong = true; sb.Clear(); continue; } // +1: a trailing CR is not counted
             sb.Append((char)c);
         }
-        if (tooLong) return "";
-        return count > 0 ? sb.ToString() : null;
+        return count > 0 ? Finish(sb, count, last, ref tooLong) : null;
+    }
+
+    private static string Finish(System.Text.StringBuilder sb, int count, int last, ref bool tooLong)
+    {
+        if (count == MaxLineLength + 1 && last != '\r') tooLong = true;
+        return tooLong ? "" : sb.ToString();
     }
 }

@@ -29,17 +29,18 @@ public sealed class Phase2AcceptanceTests : IDisposable
     {
         string work = P("bare-wd");
         Directory.CreateDirectory(work);
-        var (code2, _, err2, _) = GridlineIn(work, Encoding.UTF8.GetBytes("SET A1 5\nSAVE bare.gridline\n"), "script");
-        Assert.True(code2 == 0, err2);
+        var (saveCode, _, saveErr, _) = GridlineIn(work, Encoding.UTF8.GetBytes("SET A1 5\nSAVE bare.gridline\n"), "script");
+        Assert.True(saveCode == 0, saveErr);
         string saved = Path.Combine(work, "bare.gridline");
         Assert.True(File.Exists(saved));
         Assert.Contains("[\"A1\", \"5\"]", File.ReadAllText(saved));
         Assert.Empty(Directory.GetFiles(work, "*.tmp*"));
 
-        var (code3, o3, err3, _) = GridlineIn(work, null, "set", "bare.gridline", "B1", "7", "--out", "bare2.gridline");
-        Assert.True(code3 == 0, err3);
-        Assert.Empty(o3);
+        var (setCode, setOut, setErr, _) = GridlineIn(work, null, "set", "bare.gridline", "B1", "7", "--out", "bare2.gridline");
+        Assert.True(setCode == 0, setErr);
+        Assert.Empty(setOut);
         Assert.True(File.Exists(Path.Combine(work, "bare2.gridline")));
+        Assert.Empty(Directory.GetFiles(work, "*.tmp*"));
     }
 
     private static (int code, string stdout, string stderr, byte[] stdoutBytes) Gridline(byte[]? stdin, params string[] args) =>
