@@ -141,6 +141,28 @@ public class TokenizerTests
     [InlineData("#NULL!")]
     public void UnknownErrorLiteralIsTokenizerError(string src) => Fails(src, 0);
 
+    // §5.5 printing writes "#N/A / 2" as "#N/A/2": a '/' may end an error literal and is then the divide operator.
+    [Theory]
+    [InlineData("#N/A/2", "#N/A")]
+    [InlineData("#DIV/0!/2", "#DIV/0!")]
+    [InlineData("#REF!/A1", "#REF!")]
+    [InlineData("#N/A/#N/A", "#N/A")]
+    public void ErrorLiteralEndsBeforeDivide(string src, string code)
+    {
+        var tokens = Ok(src);
+        Assert.Equal(TokenKind.Error, tokens[0].Kind);
+        Assert.Equal(code, tokens[0].Text);
+        Assert.Equal(code, tokens[0].Lexeme);
+        Assert.Equal(TokenKind.Slash, tokens[1].Kind);
+        Assert.Equal(code.Length, tokens[1].Position);
+    }
+
+    [Theory]
+    [InlineData("#N/AX/2")]
+    [InlineData("#n/a/2")]
+    [InlineData("#DIV/2")]
+    public void UnknownErrorLiteralBeforeDivideIsStillTokenizerError(string src) => Fails(src, 0);
+
     [Fact]
     public void StringsAndDoubledQuotes()
     {

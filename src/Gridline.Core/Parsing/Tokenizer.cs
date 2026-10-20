@@ -52,6 +52,15 @@ public static class Tokenizer
                 i++;
                 while (i < s.Length && (IsAsciiLetter(s[i]) || IsDigit(s[i]) || s[i] is '/' or '!' or '?')) i++;
                 string lex = s.Substring(start, i - start);
+                // §5.5 printing emits no whitespace, so "#N/A / 2" prints as "#N/A/2": a '/' may end a literal and be the
+                // divide operator. Take the longest known code that ends just before a '/' when the whole run is unknown.
+                if (!ErrorCodes.IsKnown(lex))
+                {
+                    for (int k = lex.Length - 1; k > 0; k--)
+                    {
+                        if (lex[k] == '/' && ErrorCodes.IsKnown(lex[..k])) { lex = lex[..k]; i = start + k; break; }
+                    }
+                }
                 // R52 (§5.1 "written exactly"): case-sensitive, so #n/a is a tokenizer error (#PARSE!).
                 if (!ErrorCodes.IsKnown(lex)) return TokenizeResult.Fail($"Unknown error literal '{lex}'.", start);
                 tokens.Add(new Token(TokenKind.Error, start, lex, Text: lex));
