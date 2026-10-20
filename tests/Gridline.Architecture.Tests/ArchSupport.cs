@@ -11,7 +11,60 @@ internal static class ArchSupport
     public static Assembly CoreAsm => typeof(Workbook).Assembly;
     public static Assembly IOAsm => typeof(Gridline.IO.GridlineFile).Assembly;
     public static Assembly CliAsm => typeof(Gridline.Cli.ExitCodes).Assembly;
-    public static Assembly[] AllSrc => [CoreAsm, IOAsm, CliAsm];
+    public static Assembly AppAsm => typeof(Gridline.App.App).Assembly;
+    public static Assembly[] AllSrc => [CoreAsm, IOAsm, CliAsm, AppAsm];
+
+    // ---- §3.2 App row: may reference Core and IO; MUST NOT depend on Cli ----
+
+    /// <summary>The Gridline assemblies App may reference (§3.2).</summary>
+    public static readonly IReadOnlyList<string> AppAllowedGridline = ["Gridline.Core", "Gridline.IO"];
+
+    /// <summary>What App MUST NOT depend on (§3.2), for the type-level rule.</summary>
+    public static readonly IReadOnlyList<string> AppForbidden = ["Gridline.Cli"];
+
+    /// <summary>Referenced Gridline assemblies of <paramref name="asm"/> that are not in <paramref name="allowed"/>.</summary>
+    public static string[] DisallowedGridlineReferences(Assembly asm, IReadOnlyList<string> allowed) =>
+        ReferencedGridlineAssemblies(asm).Where(n => !allowed.Contains(n)).ToArray();
+
+    // ---- §2: src assemblies reference only the BCL (D-37) ----
+
+    /// <summary>The Windows Desktop shared-framework assemblies that make up WPF and its UI Automation peers. Only App may
+    /// reference them, and only these: WinForms and the rest of Microsoft.WindowsDesktop.App stay out (§2, D-37).</summary>
+    public static readonly IReadOnlyList<string> WpfAssemblies =
+        ["PresentationCore", "PresentationFramework", "WindowsBase", "System.Xaml", "UIAutomationTypes", "UIAutomationProvider"];
+
+    /// <summary>The shared framework directories an allowed non-Gridline reference must load from.</summary>
+    private static readonly string NetCoreAppDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+    private static readonly string WindowsDesktopAppDir = Path.GetDirectoryName(typeof(System.Windows.DependencyObject).Assembly.Location)!;
+
+    /// <summary>
+    /// Every referenced assembly of <paramref name="asm"/> that is not allowed by §2: a reference is allowed when it is a
+    /// Gridline assembly, or when it resolves from the Microsoft.NETCore.App shared framework (the BCL), or, with
+    /// <paramref name="allowWpf"/>, when it is one of <see cref="WpfAssemblies"/> and resolves from Microsoft.WindowsDesktop.App.
+    /// </summary>
+    public static List<string> NonBclReferences(Assembly asm, bool allowWpf)
+    {
+        var bad = new List<string>();
+        foreach (AssemblyName reference in asm.GetReferencedAssemblies())
+        {
+            string name = reference.Name!;
+            if (name.StartsWith("Gridline.", StringComparison.Ordinal)) continue;
+            string? dir = TryLoadDirectory(reference);
+            bool bcl = dir != null && SamePath(dir, NetCoreAppDir);
+            bool wpf = allowWpf && WpfAssemblies.Contains(name) && dir != null && SamePath(dir, WindowsDesktopAppDir);
+            if (!bcl && !wpf) bad.Add($"{asm.GetName().Name} references {name} ({dir ?? "unresolved"})");
+        }
+        return bad;
+    }
+
+    private static string? TryLoadDirectory(AssemblyName reference)
+    {
+        try { return Path.GetDirectoryName(Assembly.Load(reference).Location); }
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or BadImageFormatException) { return null; }
+    }
+
+    private static bool SamePath(string a, string b) =>
+        string.Equals(Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar), Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
 
     public const string CoreRoot = "Gridline.Core";
     public static string Ns(string name) => CoreRoot + "." + name;
@@ -88,9 +141,21 @@ internal static class ArchSupport
 
     private const BindingFlags Statics = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
+    /// <summary>Ruling R42 (§3.3): <c>public static readonly</c> DependencyProperty, RoutedEvent and RoutedUICommand
+    /// identifier fields are immutable registrations and are allowed. Exact field types only, readonly only.</summary>
+    public static bool IsR42Identifier(FieldInfo f) =>
+        f.IsStatic && f.IsInitOnly
+        && (f.FieldType == typeof(System.Windows.DependencyProperty) || f.FieldType == typeof(System.Windows.RoutedEvent)
+            || f.FieldType == typeof(System.Windows.Input.RoutedUICommand));
+
     public static bool IsMutableType(Type t)
     {
         if (t.IsArray) return true;
+        // WPF objects (brushes, pens, elements, any Freezable) carry mutable dependency-property state (D-37).
+        if (typeof(System.Windows.DependencyObject).IsAssignableFrom(t)) return true;
+        // Routed commands own a mutable InputGestures collection (and RoutedUICommand a settable Text); only the R42
+        // readonly identifier fields above are exempt.
+        if (typeof(System.Windows.Input.RoutedCommand).IsAssignableFrom(t)) return true;
         if (t == typeof(System.Text.StringBuilder)) return true;
         var ns = t.Namespace ?? "";
         if (!(ns == "System.Collections" || ns.StartsWith("System.Collections.", StringComparison.Ordinal))) return false;
@@ -120,6 +185,7 @@ internal static class ArchSupport
             {
                 bool exposed = f.IsPublic || f.IsFamily || f.IsFamilyOrAssembly;
                 if (!exposed || f.IsLiteral) continue; // const
+                if (IsR42Identifier(f)) continue;
                 if (!f.IsInitOnly) found.Add($"{t.FullName}.{f.Name}: static field is not readonly/const");
                 else if (IsMutableType(f.FieldType)) found.Add($"{t.FullName}.{f.Name}: static readonly field of mutable type {f.FieldType.Name}");
             }
