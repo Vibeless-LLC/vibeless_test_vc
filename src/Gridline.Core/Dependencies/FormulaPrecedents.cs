@@ -25,6 +25,7 @@ public sealed class FormulaPrecedents
     internal IReadOnlyList<ResizedReference> Resized { get; }
 
     public IReadOnlyList<CellAddress> Cells { get; }
+    /// <remarks>May include the synthesized SUMIF/AVERAGEIF resized rectangle (R68), not only ranges written in the text.</remarks>
     public IReadOnlyList<CellRange> Ranges { get; }
     public IReadOnlyList<string> Names { get; }
     public bool IsEmpty => Cells.Count == 0 && Ranges.Count == 0 && Names.Count == 0;

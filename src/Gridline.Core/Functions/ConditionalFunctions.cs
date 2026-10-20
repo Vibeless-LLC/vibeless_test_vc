@@ -65,7 +65,7 @@ internal static class ConditionalFunctions
                 matched++;
                 if (mode == Mode.Count) continue;
                 if (anchor.Row + r > GridBounds.MaxRows || anchor.Column + c > GridBounds.MaxColumns) continue; // beyond the grid
-                var v = values.ValueAt(r, c);
+                var v = values.ValueAt(r, c);          // offsets from sum_range's top-left may pass its own extent (ValueAt contract)
                 if (v.Kind == ValueKind.Error) return v;                   // a matched position's error propagates
                 if (v.Kind != ValueKind.Number) continue;                  // only numbers are aggregated
                 sum += v.Number;
@@ -138,7 +138,7 @@ internal static class ConditionalFunctions
                 case Shape.Empty:
                     return cell.Kind == ValueKind.Blank || (cell.Kind == ValueKind.Text && cell.Text.Length == 0);
                 case Shape.NotEmpty:
-                    return !(cell.Kind == ValueKind.Blank || (cell.Kind == ValueKind.Text && cell.Text.Length == 0));
+                    return cell.Kind != ValueKind.Blank;                                   // "" text counts as non-blank (errors rejected above)
                 case Shape.Number:
                     return cell.Kind == ValueKind.Number && Test(cell.Number.CompareTo(_number));
                 case Shape.Boolean:

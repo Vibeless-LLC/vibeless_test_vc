@@ -104,7 +104,9 @@ public class ConditionalFunctionTests
     [Fact]
     public void NotEmptyAlone_MatchesNonBlankCells()
     {
-        Assert.Equal(N(7), Count("\"<>\""));
+        Assert.Equal(N(8), Count("\"<>\""));      // all but the two blanks: the empty text is not blank
+        var one = new DictionaryCells().Set("A1", "");
+        Assert.Equal(N(1), Run("COUNTIF(A1:A2,\"<>\")", one));    // A1 is empty text, A2 is blank
         var c = new DictionaryCells().Set("A1", 0).Set("A2", "x").Set("A3", false).Set("A4", E(ErrorCodes.Div0));
         Assert.Equal(N(3), Run("COUNTIF(A1:A5,\"<>\")", c));      // the error cell never matches, A5 is blank
     }

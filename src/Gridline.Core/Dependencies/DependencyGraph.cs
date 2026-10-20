@@ -70,12 +70,8 @@ public sealed class DependencyGraph
         {
             foreach (var rr in precedents.Resized)
             {
-                foreach (var spec in new[] { rr.Range, rr.Anchor })
-                {
-                    if (spec.Name is not { } n) continue;
-                    if (!_resizedNames.TryGetValue(n, out var set)) _resizedNames.Add(n, set = []);
-                    set.Add(key);
-                }
+                TrackResizedName(rr.Range, key);
+                TrackResizedName(rr.Anchor, key);
             }
             RefreshResized(key, precedents);
         }
@@ -165,6 +161,19 @@ public sealed class DependencyGraph
             foreach (int key in users) RefreshResized(key, _formulas[key]); // R68: the resized rectangle follows the name
     }
 
+    private void TrackResizedName(ReferenceSpec spec, int key)
+    {
+        if (spec.Name is not { } n) return;
+        if (!_resizedNames.TryGetValue(n, out var set)) _resizedNames.Add(n, set = []);
+        set.Add(key);
+    }
+
+    private void UntrackResizedName(ReferenceSpec spec, int key)
+    {
+        if (spec.Name is { } n && _resizedNames.TryGetValue(n, out var set) && set.Remove(key) && set.Count == 0)
+            _resizedNames.Remove(n);
+    }
+
     /// <summary>Recomputes the resized rectangles of one formula from the current name targets (R68).</summary>
     private void RefreshResized(int key, FormulaPrecedents p)
     {
@@ -252,9 +261,8 @@ public sealed class DependencyGraph
             foreach (var r in rects) _resizedIndex.Remove(r, key);
         foreach (var rr in old.Resized)
         {
-            foreach (var spec in new[] { rr.Range, rr.Anchor })
-                if (spec.Name is { } n && _resizedNames.TryGetValue(n, out var set) && set.Remove(key) && set.Count == 0)
-                    _resizedNames.Remove(n);
+            UntrackResizedName(rr.Range, key);
+            UntrackResizedName(rr.Anchor, key);
         }
     }
 

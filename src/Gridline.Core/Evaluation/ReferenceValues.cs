@@ -37,7 +37,8 @@ public readonly struct ReferenceValues
     /// <summary>Number of columns in the range.</summary>
     public int Columns => Range.BottomRight.Column - Range.TopLeft.Column + 1;
 
-    /// <summary>The value at a 0-based offset from the range's top-left cell (random access, for lookups).</summary>
+    /// <summary>The value at a 0-based offset from the range's top-left cell (random access, for lookups). Offsets are not
+    /// limited to the range: they are read relative to the top-left cell (SUMIF's resized sum_range, D-45); the caller keeps the address inside the grid.</summary>
     public CellValue ValueAt(int rowOffset, int columnOffset) =>
         _provider.GetValue(new CellAddress(Range.TopLeft.Column + columnOffset, Range.TopLeft.Row + rowOffset));
 
