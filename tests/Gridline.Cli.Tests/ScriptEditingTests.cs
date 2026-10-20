@@ -184,12 +184,4 @@ public sealed class ScriptEditingTests : IDisposable
         Assert.Equal(0, code);
         Assert.Equal("FALSE\nNOOP\nA1\tN:1\n", o);
     }
-
-    [Fact]
-    public void PhaseThreeWords_StillNotImplemented()
-    {
-        var (code, o) = Script("INSERTROWS 1 1\nNAME x A1\nNAMES\n");
-        Assert.Equal(4, code);
-        Assert.Equal("ERR\tnot implemented\nERR\tnot implemented\nERR\tnot implemented\n", o);
-    }
 }
