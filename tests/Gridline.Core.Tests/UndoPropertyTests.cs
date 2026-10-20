@@ -1,18 +1,25 @@
 using FsCheck;
 using FsCheck.Fluent;
+using Gridline.Core.Addressing;
+using Gridline.Core.Commands;
+using Gridline.Core.Functions;
+using Gridline.Core.Parsing;
 
 namespace Gridline.Core.Tests;
 
 // Requirement IDs: §14 (undo/redo property: a random operation sequence followed by undo-all returns the initial
-// inputs), §9.3 (one step per mutating call, no-op calls, redo clearing, UndoLimit drop, dirty tracking), §6.7.
+// inputs), §9.3 (one step per mutating call, no-op calls, redo clearing, UndoLimit drop, dirty tracking), §9.4
+// (CopyPaste: snapshot, overlap, blank clears, shifting, grid-edge rejection, one step), §6.7.
 public class UndoPropertyTests
 {
     private static readonly string[] Pool = ["A1", "B1", "C1", "A2", "B2", "C2"];
+    private static readonly string[] Corner = ["ZY99999", "ZZ99999", "ZY100000", "ZZ100000"]; // bottom-right grid corner
 
     private abstract record Op;
     private sealed record SetOp(string Address, string Input) : Op;
     private sealed record BatchOp(KeyValuePair<string, string>[] Edits) : Op;
     private sealed record BurstOp(int Count) : Op; // many distinct SetCell steps, to reach the UndoLimit drop
+    private sealed record PasteOp(string Source, string Destination) : Op;
     private sealed record UndoOp : Op;
     private sealed record RedoOp : Op;
     private sealed record MarkSavedOp : Op;
@@ -23,30 +30,52 @@ public class UndoPropertyTests
         Gen.Elements(
             "=A1+B1", "=SUM(A1:C2)", "=A2*2", "=B2&\"x\"", "=IF(C1>0,A1,B1)", "=C2", "=1/0", "=  a1 + 1",
             "=A1", "=B1", "=C1", "=A2",          // self- and mutual cycles depending on where they land
-            "=SUM(A1:B1)", "=1+", "=SUM(", "=)", "=FOO(1)"));
+            "=SUM(A1:B1)", "=1+", "=SUM(", "=)", "=FOO(1)",
+            "=$A$1+B$2", "=SUM($A1:C$2)", "=zz100000", "=SUM(ZY99999:$ZZ$100000)")); // absolute, mixed, grid edge
 
-    private static readonly Gen<string> AddressGen =
-        Gen.Elements(Pool).SelectMany(a => Gen.Elements(a, a.ToLowerInvariant(), "$" + a[0] + "$" + a[1..]));
+    /// <summary>The address as written canonically, in lower case, or fully absolute.</summary>
+    private static Gen<string> Spellings(string a)
+    {
+        int letters = a.TakeWhile(char.IsLetter).Count();
+        return Gen.Elements(a, a.ToLowerInvariant(), "$" + a[..letters] + "$" + a[letters..]);
+    }
+
+    private static readonly Gen<string> AddressGen = Gen.Elements(Pool).SelectMany(Spellings);
 
     private static readonly Gen<KeyValuePair<string, string>> EditGen =
         from a in AddressGen
         from i in InputGen
         select new KeyValuePair<string, string>(a, i);
 
+    // A source inside one block (corners in any order, or a single cell) and a destination that overlaps it, lands in
+    // the other block, sits next to it, or runs off a grid edge (which must throw and change nothing).
+    private static readonly Gen<Op> PasteGen =
+        from block in Gen.Elements(Pool, Corner)
+        from a in Gen.Elements(block)
+        from b in Gen.Elements(block)
+        from single in Gen.Elements(false, false, true)
+        from sa in Spellings(a)
+        from sb in Spellings(b)
+        from dest in Gen.Elements([.. Pool, .. Corner, "D1", "B3", "ZZ1", "A100000", "ZX99998"])
+        from sd in Spellings(dest)
+        select (Op)new PasteOp(single ? sa : sa + ":" + sb, sd);
+
     private static readonly Gen<Op> OpGen = Gen.Frequency(
         (5, from a in AddressGen from i in InputGen select (Op)new SetOp(a, i)),
         (3, EditGen.ArrayOf().Select(e => (Op)new BatchOp(e))),
+        (4, PasteGen),
         (1, Gen.Choose(1, 70).Select(n => (Op)new BurstOp(n))),
         (4, Gen.Constant((Op)new UndoOp())),
         (2, Gen.Constant((Op)new RedoOp())),
         (1, Gen.Constant((Op)new MarkSavedOp())));
 
     private static readonly Gen<(KeyValuePair<string, string>[] Initial, Op[] Ops)> ScenarioGen =
-        from init in Gen.Elements(Pool).SelectMany(a => InputGen.Select(i => new KeyValuePair<string, string>(a, i))).ArrayOf()
+        from init in Gen.Elements([.. Pool, .. Corner]).SelectMany(a => InputGen.Select(i => new KeyValuePair<string, string>(a, i))).ArrayOf()
         from ops in OpGen.ArrayOf()
         select (init.DistinctBy(p => p.Key).ToArray(), ops);
 
-    /// <summary>A naive reference model of the history: every state snapshot in a list, a cursor, and step ids.</summary>
+    /// <summary>A naive reference model of the history: every state snapshot (canonical address to non-empty input)
+    /// in a list, a cursor, and step ids.</summary>
     private sealed class Model
     {
         public List<Dictionary<string, string>> States { get; } = [];
@@ -75,16 +104,17 @@ public class UndoPropertyTests
     }
 
     private static Dictionary<string, string> Inputs(Workbook wb) =>
-        Pool.ToDictionary(a => a, wb.GetInput);
+        wb.GetUsedAddresses().ToDictionary(a => a, wb.GetInput);
 
     private static bool SameInputs(Dictionary<string, string> a, Dictionary<string, string> b) =>
-        Pool.All(p => string.Equals(a[p], b[p], StringComparison.Ordinal));
+        a.Count == b.Count && a.All(p => b.TryGetValue(p.Key, out var v) && string.Equals(p.Value, v, StringComparison.Ordinal));
 
     /// <summary>Values match a fresh FromCells of the same inputs (§6.7: incremental recalc equals a full one).</summary>
     private static bool ValuesMatchFresh(Workbook wb)
     {
-        var fresh = Workbook.FromCells(Pool.Select(a => new KeyValuePair<string, string>(a, wb.GetInput(a))));
-        return Pool.All(a => wb.GetValue(a).Equals(fresh.GetValue(a)));
+        var used = wb.GetUsedAddresses();
+        var fresh = Workbook.FromCells(used.Select(a => new KeyValuePair<string, string>(a, wb.GetInput(a))));
+        return used.Concat(Pool).All(a => wb.GetValue(a).Equals(fresh.GetValue(a)));
     }
 
     private static bool Check(Workbook wb, Model m) =>
@@ -93,10 +123,36 @@ public class UndoPropertyTests
 
     private static Dictionary<string, string> Canon(Dictionary<string, string> state, string address, string input)
     {
-        var next = new Dictionary<string, string>(state)
+        var next = new Dictionary<string, string>(state);
+        string key = CellAddress.Parse(address).ToString();
+        if (input.Length == 0) next.Remove(key);
+        else next[key] = input;
+        return next;
+    }
+
+    private static readonly FunctionArityAdapter Arities = new(BuiltInFunctionTable.Default);
+
+    /// <summary>The §9.4 model of a paste over the whole state, or null when the destination exceeds the grid.
+    /// Source cells are read from <paramref name="state"/> (the snapshot), so overlap needs no special care.</summary>
+    private static Dictionary<string, string>? ModelPaste(Dictionary<string, string> state, string source, string destination)
+    {
+        var range = CellRange.TryParse(source, out var r) ? r : new CellRange(CellAddress.Parse(source), CellAddress.Parse(source));
+        var dest = CellAddress.Parse(destination);
+        int dRow = dest.Row - range.TopLeft.Row, dCol = dest.Column - range.TopLeft.Column;
+        if (range.BottomRight.Row + dRow > Workbook.MaxRows || range.BottomRight.Column + dCol > Workbook.MaxColumns) return null;
+        var target = new CellRange(dest, new CellAddress(range.BottomRight.Column + dCol, range.BottomRight.Row + dRow));
+        var next = new Dictionary<string, string>(state);
+        foreach (var a in state.Keys)
+            if (target.Contains(CellAddress.Parse(a))) next.Remove(a);
+        foreach (var (a, input) in state)
         {
-            [Gridline.Core.Addressing.CellAddress.Parse(address).ToString()] = input
-        };
+            var from = CellAddress.Parse(a);
+            if (!range.Contains(from)) continue;
+            string pasted = input; // constants and unparseable formulas verbatim (R39)
+            if (input.StartsWith('=') && FormulaParser.Parse(input[1..], Arities).Root is { } root)
+                pasted = FormulaPrinter.Print(root, new ReferenceShifter(dRow, dCol));
+            next[new CellAddress(from.Column + dCol, from.Row + dRow).ToString()] = pasted;
+        }
         return next;
     }
 
@@ -134,6 +190,27 @@ public class UndoPropertyTests
                     bool changes = !SameInputs(next, m.Current);
                     wb.ApplyBatch(b.Edits);
                     if (changes) m.Push(next);
+                    expectedEvents = changes ? 1 : 0;
+                    break;
+                }
+                case PasteOp p:
+                {
+                    var next = ModelPaste(m.Current, p.Source, p.Destination);
+                    if (next is null)
+                    {
+                        try
+                        {
+                            wb.CopyPaste(p.Source, p.Destination);
+                            return false; // must throw: the destination exceeds the grid
+                        }
+                        catch (ArgumentException) { }
+                        expectedEvents = 0;
+                        break;
+                    }
+                    bool changes = !SameInputs(next, m.Current);
+                    wb.CopyPaste(p.Source, p.Destination);
+                    if (changes) m.Push(next);
+                    else if (wb.LastRecalc.EvaluatedFormulaCount != 0) return false; // no-op paste (R24)
                     expectedEvents = changes ? 1 : 0;
                     break;
                 }
@@ -181,8 +258,8 @@ public class UndoPropertyTests
         if (m.Cursor != 0 || !Check(wb, m)) return false;
         bool dropped = m.Ids[0] != 0;
         if (!dropped && !SameInputs(Inputs(wb), initialInputs)) return false;
-        var fresh = Workbook.FromCells(m.States[0].Where(p => p.Value.Length != 0).Select(p => new KeyValuePair<string, string>(p.Key, p.Value)));
-        if (!Pool.All(a => wb.GetValue(a).Equals(fresh.GetValue(a)))) return false;
+        var fresh = Workbook.FromCells(m.States[0]);
+        if (!m.States[0].Keys.Concat(Pool).All(a => wb.GetValue(a).Equals(fresh.GetValue(a)))) return false;
 
         // Redo-all reaches the newest state.
         while (wb.Redo()) m.Cursor++;
@@ -202,5 +279,16 @@ public class UndoPropertyTests
         Op[] ops = [new SetOp("A1", "=B1+1"), new MarkSavedOp(), new BurstOp(60), new SetOp("B1", "=A1"),
             new UndoOp(), new BurstOp(60), new UndoOp(), new RedoOp(), new BatchOp([new("A2", "=SUM(A1:C2)"), new("a2", "=A2")])];
         Assert.True(Run([new("B1", "4"), new("C1", "=A1*2")], ops));
+    }
+
+    [Fact]
+    public void FixedPasteSequence_OverlapGridEdgesAndUndo()
+    {
+        Op[] ops = [new PasteOp("A1:B2", "B1"), new PasteOp("B1:C2", "A1"), new PasteOp("a1:c1", "A2"), new PasteOp("A2:C2", "a1"),
+            new PasteOp("A1:C2", "ZX99999"), new PasteOp("$ZZ$100000:ZY99999", "A1"), new PasteOp("A1:B2", "ZZ1"),
+            new PasteOp("A1:B1", "A100000"), new PasteOp("C2", "ZZ100000"), new UndoOp(), new UndoOp(), new RedoOp(),
+            new PasteOp("A1:C2", "A1"), new PasteOp("A1:A2", "A100000")];
+        Assert.True(Run([new("A1", "1"), new("B1", "=A1+$A$1"), new("C1", "=  sum(A1:B$1)"), new("A2", "=C2"), new("C2", "'t"),
+            new("ZZ100000", "=SUM(ZY99999:ZZ99999)")], ops));
     }
 }

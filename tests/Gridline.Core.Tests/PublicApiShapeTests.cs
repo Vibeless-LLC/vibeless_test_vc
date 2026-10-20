@@ -152,7 +152,7 @@ public class PublicApiShapeTests
         Assert.True(e.AddMethod!.IsPublic && !e.AddMethod.IsStatic);
     }
 
-    // §9.1 Phase 2 (undo and dirty tracking, §9.3); CopyPaste arrives with its own task.
+    // §9.1 Phase 2 (undo and dirty tracking, §9.3; CopyPaste, §9.4).
     [Fact]
     public void Workbook_HasThePhase2UndoSurface()
     {
@@ -164,5 +164,6 @@ public class PublicApiShapeTests
         AssertMethod(t, "Redo", isStatic: false, typeof(bool));
         AssertInstanceGetOnly(t, "IsDirty", typeof(bool));
         AssertMethod(t, "MarkSaved", isStatic: false, typeof(void));
+        AssertMethod(t, "CopyPaste", isStatic: false, typeof(void), typeof(string), typeof(string));
     }
 }

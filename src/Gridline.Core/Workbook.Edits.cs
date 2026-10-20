@@ -102,7 +102,8 @@ public sealed partial class Workbook
     /// <summary>
     /// Sets every edited cell to its new input (<paramref name="forward"/>) or its old input, updates the edges and
     /// runs one recalculation with all edited cells in the changed set. Atomic (§9.2): on an exception every cell
-    /// entry, edge and written value is restored and the exception propagates. Each address appears at most once.
+    /// entry, edge and written value is restored and the exception propagates. Each address appears at most once
+    /// (enforced by the <see cref="UndoStep"/> constructor).
     /// </summary>
     private RecalcResult Apply(ImmutableArray<CellEdit> edits, bool forward)
     {

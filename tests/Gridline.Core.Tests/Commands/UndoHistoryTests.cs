@@ -30,6 +30,19 @@ public class UndoHistoryTests
         Assert.Throws<ArgumentNullException>(() => new UndoStep(default));
     }
 
+    // The apply/rollback path replaces each edited cell once; a duplicate address would corrupt rollback (§9.2, §9.3).
+    [Fact]
+    public void UndoStep_RejectsADuplicateAddress()
+    {
+        var a1 = CellAddress.Parse("A1");
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new UndoStep([new CellEdit(a1, "", "1"), new CellEdit(CellAddress.Parse("B1"), "", "2"), new CellEdit(a1, "1", "3")]));
+        Assert.Equal("cellEdits", ex.ParamName);
+        Assert.Single(new UndoStep([new CellEdit(a1, "", "1")]).CellEdits);
+        Assert.Empty(new UndoStep([]).CellEdits);
+        Assert.Equal(2, new UndoStep([new CellEdit(a1, "", "1"), new CellEdit(CellAddress.Parse("A2"), "", "2")]).CellEdits.Length);
+    }
+
     [Fact]
     public void PeekThenComplete_MovesStepsBetweenStacks()
     {
