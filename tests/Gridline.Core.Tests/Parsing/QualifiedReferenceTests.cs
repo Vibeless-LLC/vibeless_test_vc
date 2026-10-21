@@ -64,35 +64,32 @@ public class QualifiedReferenceTests
     public void LongNumberRuns_StillTokenizeInLinearTime()
     {
         // Each token start inside a [A-Za-z0-9_.] run reuses the run's end, so "1.2.3..." is not rescanned per token.
-        // Robust against slow or noisy machines: compare the best-of-5 time for n and 4n runs. Linear growth is ~4x; the
-        // O(n²) regression this guards against is ~16x, so a bound of 9x (plus a small absolute allowance for timer
-        // granularity and scheduling noise) separates them without depending on absolute speed. At n = 16,384 the quadratic
-        // tokenizer measured 206 ms for n and 3,177 ms for 4n (bound 1,874 ms); the linear one takes ~1 ms and ~5 ms.
+        // Deterministic (no wall-clock timing, so machine load cannot fail it): count the characters the sheet-prefix
+        // lookahead examines. Linear tokenizing examines each character at most once (≤ length); the O(n²) regression this
+        // guards against (rescanning the rest of the run at every token) examines ~length²/4 at n = 16,384 units.
         const int n = 16384;
-        foreach (string unit in new[] { "1.", "a." })
+        foreach (string unit in new[] { "1.", "a.", "1.a", "_1." })
         {
-            string small = string.Concat(Enumerable.Repeat(unit, n)) + "1";
-            string large = string.Concat(Enumerable.Repeat(unit, 4 * n)) + "1";
-            Assert.True(Tokenizer.Tokenize(small).Success); // also warms up the JIT
-            Assert.True(Tokenizer.Tokenize(large).Success);
-            double tSmall = BestOfFive(small), tLarge = BestOfFive(large);
-            Assert.True(tLarge < 9 * tSmall + 20.0, $"'{unit}' runs: n took {tSmall:F2} ms, 4n took {tLarge:F2} ms (quadratic growth)");
-        }
-
-        static double BestOfFive(string text)
-        {
-            double best = double.MaxValue;
-            for (int i = 0; i < 5; i++)
+            foreach (int size in new[] { n, 4 * n })
             {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                Tokenizer.Tokenize(text);
-                sw.Stop();
-                best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+                string text = string.Concat(Enumerable.Repeat(unit, size)) + "1";
+                var result = Tokenizer.Tokenize(text, out long steps);
+                Assert.True(result.Success);
+                Assert.True(steps <= text.Length, $"'{unit}' x {size}: the prefix lookahead examined {steps} characters for a text of {text.Length} (quadratic rescanning)");
             }
-            return best;
         }
+    }
+
+    [Fact]
+    public void PrefixScanSteps_CountTheLookahead_AndWouldExposeRescanning()
+    {
+        // The counter itself: one run is scanned once; separate runs add up; a qualified prefix is counted once.
+        Tokenizer.Tokenize("1.2.3.4", out long one);
+        Assert.Equal(7, one);
+        Tokenizer.Tokenize("ab+cd", out long two);
+        Assert.Equal(4, two);
+        Tokenizer.Tokenize("Data!A1+1", out long qualified);
+        Assert.Equal(4 + 1, qualified); // "Data" then "1"; "A1" is read by ReadQualified
     }
 
     // ---- Parser and AST ----

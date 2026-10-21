@@ -13,9 +13,15 @@ namespace Gridline.Core.Parsing;
 /// </summary>
 public static class Tokenizer
 {
-    public static TokenizeResult Tokenize(string formulaText)
+    public static TokenizeResult Tokenize(string formulaText) => Tokenize(formulaText, out _);
+
+    /// <summary>As <see cref="Tokenize(string)"/>, also reporting <paramref name="prefixScanSteps"/>: the characters examined
+    /// by the sheet-prefix lookahead over [A-Za-z0-9_.] runs. Linear tokenizing keeps it ≤ the text length; a regression
+    /// that rescans a run per token makes it quadratic. A deterministic test seam (no wall-clock timing).</summary>
+    internal static TokenizeResult Tokenize(string formulaText, out long prefixScanSteps)
     {
         ArgumentNullException.ThrowIfNull(formulaText);
+        prefixScanSteps = 0;
         var s = formulaText;
         var tokens = new List<Token>();
         int i = 0;
@@ -58,6 +64,7 @@ public static class Tokenizer
             {
                 int j = i;
                 while (j < s.Length && SheetName.IsBareChar(s[j])) j++;
+                prefixScanSteps += j - i;
                 if (j < s.Length && s[j] == '!')
                 {
                     // R82: an unquoted prefix must be a valid sheet name that needs no quotes (so not 2024, A1 or TRUE).
