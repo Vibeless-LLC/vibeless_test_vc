@@ -28,16 +28,7 @@ public static class CsvFormat
     public static Workbook Import(ReadOnlySpan<byte> bytes, char delimiter = ',')
     {
         DelimitedTextParser.ValidateDelimiter(delimiter);
-        // The record and field limits are enforced while parsing, so an oversized file stops at record 100,001 or field
-        // 703 instead of materializing every record first (§8.5, resource bound).
-        var records = DelimitedTextParser.Parse(Decode(bytes), delimiter, MaxRecords, MaxFields);
-        for (int i = 0; i < records.Count; i++)
-        {
-            foreach (var field in records[i])
-                if (DelimitedTextMapping.StoredLength(field) > Workbook.MaxInputLength)
-                    throw new GridlineFormatException(
-                        $"Record {i + 1}: a field is longer than {Workbook.MaxInputLength} UTF-16 code units once stored.");
-        }
+        var records = ParseRecords(bytes, delimiter);
         return Workbook.FromCells(DelimitedTextMapping.ToEdits(records, new CellAddress(1, 1)), []);
     }
 
@@ -51,24 +42,21 @@ public static class CsvFormat
         return Import(GridlineFile.ReadAllBytes(path), delimiter);
     }
 
-    /// <summary>The CSV bytes of <paramref name="workbook"/> (§8.5): computed values, UTF-8 with BOM, CRLF after every
-    /// record; an empty workbook gives only the BOM.</summary>
-    /// <exception cref="ArgumentException">The delimiter is <c>"</c>, CR or LF.</exception>
-    public static byte[] Export(Workbook workbook, char delimiter = ',')
+    /// <summary>The CSV bytes of one sheet of <paramref name="workbook"/> (§8.5, CR1.6, R76): computed values, UTF-8 with
+    /// BOM, CRLF after every record; an empty sheet gives only the BOM. <paramref name="sheet"/> is matched
+    /// case-insensitively; null means the active sheet.</summary>
+    /// <exception cref="ArgumentException">The delimiter is <c>"</c>, CR or LF, or no sheet has the name.</exception>
+    public static byte[] Export(Workbook workbook, char delimiter = ',', string? sheet = null)
     {
         ArgumentNullException.ThrowIfNull(workbook);
         DelimitedTextParser.ValidateDelimiter(delimiter);
+        int index = SheetIndex(workbook, sheet);
 
-        // Only used cells carry values; collect them row-major (GetUsedAddresses order) and find the extent.
-        var used = workbook.GetUsedAddresses();
-        var cells = new (int Row, int Column, CellValue Value)[used.Count];
+        // Only used cells carry values; they come row-major, and the last one gives the last used row.
+        var cells = workbook.GetSheetValues(index);
         int maxColumn = 0;
-        for (int i = 0; i < used.Count; i++)
-        {
-            var a = CellAddress.Parse(used[i]); // GetUsedAddresses gives canonical addresses
-            cells[i] = (a.Row, a.Column, workbook.GetValue(used[i]));
-            if (a.Column > maxColumn) maxColumn = a.Column;
-        }
+        foreach (var cell in cells)
+            if (cell.Column > maxColumn) maxColumn = cell.Column;
 
         using var buffer = new MemoryStream();
         buffer.Write(Encoding.UTF8.Preamble);
@@ -97,10 +85,66 @@ public static class CsvFormat
     /// <summary>Writes the CSV of <paramref name="workbook"/> to <paramref name="path"/> atomically (§8.4).</summary>
     /// <exception cref="ArgumentException">The delimiter is invalid, or the path is null or empty.</exception>
     /// <exception cref="GridlineIOException">Any I/O or access failure.</exception>
-    public static void ExportToPath(Workbook workbook, string path, char delimiter = ',')
+    public static void ExportToPath(Workbook workbook, string path, char delimiter = ',', string? sheet = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        GridlineFile.WriteAtomic(Export(workbook, delimiter), path);
+        GridlineFile.WriteAtomic(Export(workbook, delimiter, sheet), path);
+    }
+
+    /// <summary>Imports a CSV stream as a new sheet named <paramref name="sheetName"/>, appended after the existing sheets
+    /// (CR1.6, R76). The stream is read to its end and decoded and parsed exactly as <see cref="Import"/>. Everything is
+    /// validated before the workbook is touched; then one undo step adds the sheet holding the cells, one recalculation
+    /// runs (formulas that named the sheet while it was missing resolve), <see cref="Workbook.CellsChanged"/> is raised
+    /// once (R81) and the workbook is dirty. The active sheet does not change (R80). Undo removes the sheet.</summary>
+    /// <exception cref="ArgumentNullException">An argument other than <paramref name="options"/> is null.</exception>
+    /// <exception cref="ArgumentException">The sheet name is invalid or already used (case-insensitive), or the delimiter is
+    /// <c>"</c>, CR or LF.</exception>
+    /// <exception cref="InvalidOperationException">The workbook already has 255 sheets.</exception>
+    /// <exception cref="GridlineFormatException">As <see cref="Import"/>.</exception>
+    /// <exception cref="IOException">The stream cannot be read.</exception>
+    public static void ImportInto(Workbook wb, string sheetName, Stream source, CsvOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(wb);
+        ArgumentNullException.ThrowIfNull(sheetName);
+        ArgumentNullException.ThrowIfNull(source);
+        char delimiter = (options ?? new CsvOptions()).Delimiter;
+        DelimitedTextParser.ValidateDelimiter(delimiter);
+        // The name is checked before the stream is read, so a bad name never costs a parse; AddSheetWithCells checks it
+        // again, and the sheet count, before it changes anything.
+        SheetName.Validate(sheetName, nameof(sheetName));
+        foreach (string existing in wb.SheetNames)
+            if (string.Equals(existing, sheetName, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"A sheet named '{existing}' already exists.", nameof(sheetName));
+
+        using var buffer = new MemoryStream();
+        source.CopyTo(buffer);
+        var records = ParseRecords(buffer.GetBuffer().AsSpan(0, (int)buffer.Length), delimiter);
+        wb.AddSheetWithCells(sheetName, DelimitedTextMapping.ToEdits(records, new CellAddress(1, 1)));
+    }
+
+    private static int SheetIndex(Workbook workbook, string? sheet)
+    {
+        var names = workbook.SheetNames;
+        sheet ??= workbook.ActiveSheet;
+        for (int i = 0; i < names.Count; i++)
+            if (string.Equals(names[i], sheet, StringComparison.OrdinalIgnoreCase)) return i;
+        throw new ArgumentException($"Unknown sheet '{(sheet.Length > 64 ? sheet[..64] + "..." : sheet)}'.", nameof(sheet));
+    }
+
+    /// <summary>Decodes and parses CSV bytes with the record, field and stored-length limits of §8.5.</summary>
+    private static IReadOnlyList<IReadOnlyList<string>> ParseRecords(ReadOnlySpan<byte> bytes, char delimiter)
+    {
+        // The record and field limits are enforced while parsing, so an oversized file stops at record 100,001 or field
+        // 703 instead of materializing every record first (§8.5, resource bound).
+        var records = DelimitedTextParser.Parse(Decode(bytes), delimiter, MaxRecords, MaxFields);
+        for (int i = 0; i < records.Count; i++)
+        {
+            foreach (var field in records[i])
+                if (DelimitedTextMapping.StoredLength(field) > Workbook.MaxInputLength)
+                    throw new GridlineFormatException(
+                        $"Record {i + 1}: a field is longer than {Workbook.MaxInputLength} UTF-16 code units once stored.");
+        }
+        return records;
     }
 
     private static string FieldText(in CellValue value) => value.Kind switch

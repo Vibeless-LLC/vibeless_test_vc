@@ -49,7 +49,24 @@ public sealed partial class Workbook
     /// case-insensitively.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The index is outside 0..<see cref="SheetNames"/>.Count.</exception>
     /// <exception cref="InvalidOperationException">The workbook already has 255 sheets. All errors leave it unchanged (R78).</exception>
-    public void AddSheet(string name, int? index = null)
+    public void AddSheet(string name, int? index = null) => AddSheetCore(name, index, []);
+
+    /// <summary>
+    /// Internal entry (ruling P1; CSV <c>ImportInto</c>, CR1.6, R76): as <see cref="AddSheet"/> with the sheet appended and
+    /// already holding <paramref name="cells"/> (unqualified address, input; empty inputs are skipped). Everything is
+    /// validated before anything changes; then the sheet and its cells are added by the one sheet-insert step, with one
+    /// recalculation and one undo step. Undo removes the sheet; redo adds it again with its cells.
+    /// </summary>
+    /// <exception cref="ArgumentException">As <see cref="AddSheet"/>, or an address is invalid or qualified, an input is
+    /// null or too long, or an address appears twice (compared canonically).</exception>
+    /// <exception cref="InvalidOperationException">The workbook already has 255 sheets.</exception>
+    internal void AddSheetWithCells(string name, IEnumerable<KeyValuePair<string, string>> cells)
+    {
+        ArgumentNullException.ThrowIfNull(cells);
+        AddSheetCore(name, null, cells);
+    }
+
+    private void AddSheetCore(string name, int? index, IEnumerable<KeyValuePair<string, string>> cells)
     {
         ArgumentNullException.ThrowIfNull(name);
         SheetName.Validate(name, nameof(name));
@@ -61,7 +78,17 @@ public sealed partial class Workbook
         if (at < 0 || at > _sheets.Count)
             throw new ArgumentOutOfRangeException(nameof(index), index, $"The index must be 0..{_sheets.Count}.");
 
-        var step = new UndoStep(new SheetInsert(_nextSheetId, name, at), []);
+        var edits = ImmutableArray.CreateBuilder<CellEdit>();
+        var seen = new HashSet<int>();
+        foreach (var (address, input) in cells)
+        {
+            int key = CellKey.Pack(ParseAddress(address, nameof(cells)));
+            ValidateInput(input, nameof(cells));
+            if (!seen.Add(key)) throw new ArgumentException($"Duplicate cell address '{address}'.", nameof(cells));
+            if (input.Length != 0) edits.Add(new CellEdit(CellKey.Unpack(key), "", input) { Sheet = _nextSheetId });
+        }
+
+        var step = new UndoStep(new SheetInsert(_nextSheetId, name, at), edits.ToImmutable());
         var (result, changed) = ApplySheetInsert(step, forward: true);
         _nextSheetId++; // only once the sheet exists, so a failed call allocates no id
         _history.Record(step);

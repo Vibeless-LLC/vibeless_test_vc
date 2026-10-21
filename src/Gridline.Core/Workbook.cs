@@ -323,6 +323,24 @@ public sealed partial class Workbook
         return result;
     }
 
+    /// <summary>The (row, column, computed value) of the non-empty cells of the sheet at <paramref name="index"/>,
+    /// row-major. Internal: the per-sheet CSV export (CR1.6, R76); O(n log n) in the sheet's used cells.</summary>
+    internal (int Row, int Column, CellValue Value)[] GetSheetValues(int index)
+    {
+        var cells = _sheets[index].Cells;
+        var order = new int[cells.Count];
+        int n = 0;
+        foreach (int key in cells.Keys) order[n++] = (CellKey.Row(key) << 10) | CellKey.Column(key);
+        Array.Sort(order);
+        var result = new (int Row, int Column, CellValue Value)[order.Length];
+        for (int i = 0; i < order.Length; i++)
+        {
+            int row = order[i] >> 10, column = order[i] & 1023;
+            result[i] = (row, column, cells[CellKey.Pack(column, row)].Value);
+        }
+        return result;
+    }
+
     /// <summary>An unqualified cell address (the single-sheet loader's cells and CopyPaste's internal use).</summary>
     private static CellAddress ParseAddress(string? address, string paramName)
     {
