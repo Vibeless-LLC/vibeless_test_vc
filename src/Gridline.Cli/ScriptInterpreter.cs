@@ -131,8 +131,8 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                     NoArgs(word, rest);
                     var names = _wb.SheetNames;
                     for (int i = 0; i < names.Count; i++)
-                        ctx.Out("SHEET\t" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\t" + names[i] + "\n");
-                    ctx.Out("ACTIVE\t" + _wb.ActiveSheet + "\n");
+                        ctx.Out("SHEET\t" + i.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\t" + CellArgs.Echo(names[i]) + "\n");
+                    ctx.Out("ACTIVE\t" + CellArgs.Echo(_wb.ActiveSheet) + "\n"); // D-58: TAB/LF/CR escaped
                 }
                 return true;
             case "NAME":
@@ -150,18 +150,18 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                 return true;
             case "NAMES":
                 NoArgs(word, rest);
-                foreach (var kv in _wb.GetNames()) ctx.Out("NAME\t" + kv.Key + "\t" + kv.Value + "\n");
+                foreach (var kv in _wb.GetNames()) ctx.Out("NAME\t" + kv.Key + "\t" + CellArgs.Echo(kv.Value) + "\n"); // R77, D-58
                 return true;
             case "GET":
-                { string a = OneAddress(rest); ctx.Out(a + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n"); }
+                { string a = OneAddress(rest); ctx.Out(CellArgs.Echo(a) + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n"); }
                 return true;
             case "INPUT":
-                { string a = OneAddress(rest); ctx.Out(a + "\t" + CellValue.EscapeText(_wb.GetInput(a)) + "\n"); }
+                { string a = OneAddress(rest); ctx.Out(CellArgs.Echo(a) + "\t" + CellValue.EscapeText(_wb.GetInput(a)) + "\n"); }
                 return true;
             case "DUMP":
                 NoArgs(word, rest);
                 foreach (string a in _wb.GetUsedAddresses()) // CR1.3: unqualified with one sheet, else qualified
-                    ctx.Out(a + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n");
+                    ctx.Out(CellArgs.Echo(a) + "\t" + _wb.GetValue(a).ToCanonicalString() + "\n");
                 return true;
             case "STATS":
                 NoArgs(word, rest);
@@ -271,10 +271,10 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         return (sheet, column, Integer(parts[1], "count"));
     }
 
-    // The R82 prefix rules (CellArgs); whether the sheet exists is the workbook's check (an ERR).
+    // The R82 prefix rules (Core SheetName, D-58); whether the sheet exists is the workbook's check (an ERR).
     private static (string? sheet, string rest) SheetPrefix(string token)
     {
-        if (!CellArgs.TrySplitQualified(token, out string? sheet, out string rest))
+        if (!SheetName.TrySplitQualified(token, out string? sheet, out string rest))
             throw new CliException(ExitCodes.Usage, $"invalid sheet prefix in '{token}'");
         return (sheet, rest);
     }
@@ -293,7 +293,7 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                 throw new CliException(ExitCodes.Usage, $"sheet name '{token}' must be quoted");
             return token;
         }
-        if (!CellArgs.TryReadQuoted(token, out string name, out int end) || end != token.Length)
+        if (!SheetName.TryReadQuoted(token,out string name, out int end) || end != token.Length)
             throw new CliException(ExitCodes.Usage, $"invalid quoted sheet name {token}");
         return name;
     }
@@ -329,7 +329,7 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
         int i = start;
         if (i < s.Length && s[i] == '\'')
         {
-            if (!CellArgs.TryReadQuoted(s[start..], out _, out int end))
+            if (!SheetName.TryReadQuoted(s[start..], out _, out int end))
                 throw new CliException(ExitCodes.Usage, "unterminated quoted sheet name");
             i = start + end;
         }

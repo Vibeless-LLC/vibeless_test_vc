@@ -643,6 +643,113 @@ public sealed class SheetCommandTests : IDisposable
         Assert.Equal(Lines("SHEET\t0\tSheet1", "SHEET\t1\tMy Sheet", "ACTIVE\tMy Sheet", "A1\tN:1"), o);
     }
 
+    // ---- D-58: sheet names with TAB, CR and LF (legal under CR1.1) are escaped on stdout ----
+
+    private const string Ctl = "T\tab\rC\nL";             // as stored
+    private const string CtlOut = "T\\tab\\rC\\nL";        // as printed (§8.3 escapes)
+
+    /// <summary>Sheet1 (A1 = 1) and the control-character sheet (A1 = 5, B1 = its A1 + Sheet1!A1), name rate → it.</summary>
+    private string ControlCharFile()
+    {
+        var wb = new Workbook();
+        wb.SetCell("A1", "1");
+        wb.AddSheet(Ctl);
+        string q = Gridline.Core.Addressing.SheetName.Format(Ctl);
+        wb.SetCell(q + "!A1", "5");
+        wb.SetCell(q + "!B1", "=A1+Sheet1!A1");
+        wb.DefineName("rate", q + "!$A$1");
+        string path = P("ctl.gridline");
+        GridlineFile.SaveToPath(wb, path);
+        return path;
+    }
+
+    [Fact]
+    public void ControlCharSheetName_FromFile_ScriptOutputIsEscaped()
+    {
+        string f = ControlCharFile();
+        var (code, o) = Script(Lines("SHEETS", "DUMP", "NAMES"), "--file", f);
+        Assert.Equal(0, code);
+        Assert.Equal(Lines(
+            "SHEET\t0\tSheet1", "SHEET\t1\t" + CtlOut, "ACTIVE\tSheet1",
+            "Sheet1!A1\tN:1", "'" + CtlOut + "'!A1\tN:5", "'" + CtlOut + "'!B1\tN:6",
+            "NAME\trate\t'" + CtlOut + "'!$A$1"), o);
+    }
+
+    [Fact]
+    public void ControlCharSheetName_ActiveFromFile_IsEscaped()
+    {
+        var wb = new Workbook();
+        wb.AddSheet(Ctl);
+        wb.ActiveSheet = Ctl;
+        string f = P("active-ctl.gridline");
+        GridlineFile.SaveToPath(wb, f);
+        var (code, o) = Script("SHEETS\n", "--file", f);
+        Assert.Equal(0, code);
+        Assert.Equal(Lines("SHEET\t0\tSheet1", "SHEET\t1\t" + CtlOut, "ACTIVE\t" + CtlOut), o);
+    }
+
+    [Fact]
+    public void ControlCharSheetName_QuotedScriptToken_TabAndCr()
+    {
+        // A TAB and a mid-line CR can be typed in a quoted token (only one trailing CR is stripped, R31).
+        const string Name = "x\ty\rz";
+        const string Out = "x\\ty\\rz";
+        string script = Lines(
+            "ADDSHEET '" + Name + "'",
+            "SET '" + Name + "'!A1 7",
+            "NAME n '" + Name + "'!$A$1",
+            "SHEETS",
+            "ACTIVATE '" + Name + "'",
+            "SHEETS",
+            "GET '" + Name + "'!a1",
+            "INPUT '" + Name + "'!A1",
+            "DUMP",
+            "NAMES");
+        var (code, o) = Script(script);
+        Assert.Equal(0, code);
+        Assert.Equal(Lines(
+            "SHEET\t0\tSheet1", "SHEET\t1\t" + Out, "ACTIVE\tSheet1",
+            "SHEET\t0\tSheet1", "SHEET\t1\t" + Out, "ACTIVE\t" + Out,
+            "'" + Out + "'!A1\tN:7",
+            "'" + Out + "'!A1\t7",
+            "'" + Out + "'!A1\tN:7",
+            "NAME\tn\t'" + Out + "'!$A$1"), o);
+    }
+
+    [Fact]
+    public void ControlCharSheetName_Eval_AndEvalAll_AreEscaped()
+    {
+        string f = ControlCharFile();
+        string q = "'" + Ctl + "'";
+        var (code, o, e) = Run("eval", f, q + "!a1", q.ToLowerInvariant() + "!B1", "A1");
+        Assert.Equal(0, code);
+        Assert.Empty(e);
+        Assert.Equal(Lines("'" + CtlOut + "'!A1\tN:5", "'" + CtlOut + "'!B1\tN:6", "A1\tN:1"), o);
+
+        var (c2, all, _) = Run("eval", f, "--all");
+        Assert.Equal(0, c2);
+        Assert.Equal(Lines("Sheet1!A1\tN:1", "'" + CtlOut + "'!A1\tN:5", "'" + CtlOut + "'!B1\tN:6"), all);
+    }
+
+    [Fact]
+    public void Process_ControlCharSheetName_EvalAndScript_AreEscaped()
+    {
+        ControlCharFile();
+        var ev = Phase2AcceptanceTests.GridlineIn(_dir, null, "eval", "ctl.gridline", "'" + Ctl + "'!A1", "A1");
+        Assert.Equal(0, ev.code);
+        Assert.Equal("'" + CtlOut + "'!A1\tN:5\nA1\tN:1\n", ev.stdout);
+
+        var all = Phase2AcceptanceTests.GridlineIn(_dir, null, "eval", "ctl.gridline", "--all");
+        Assert.Equal("Sheet1!A1\tN:1\n'" + CtlOut + "'!A1\tN:5\n'" + CtlOut + "'!B1\tN:6\n", all.stdout);
+
+        var sc = Phase2AcceptanceTests.GridlineIn(_dir, Encoding.UTF8.GetBytes("SHEETS\nDUMP\nNAMES\n"), "script", "--file", "ctl.gridline");
+        Assert.Equal(0, sc.code);
+        Assert.Equal(
+            "SHEET\t0\tSheet1\nSHEET\t1\t" + CtlOut + "\nACTIVE\tSheet1\n" +
+            "Sheet1!A1\tN:1\n'" + CtlOut + "'!A1\tN:5\n'" + CtlOut + "'!B1\tN:6\n" +
+            "NAME\trate\t'" + CtlOut + "'!$A$1\n", sc.stdout);
+    }
+
     // ---- process level (the built gridline.dll) ----
 
     [Fact]

@@ -32,7 +32,7 @@ public static class FileCommands
         var canonical = new List<string>(parsed.Count);
         foreach (var a in parsed) canonical.Add(CellArgs.Resolve(wb, a));
         foreach (string addr in all ? wb.GetUsedAddresses() : canonical)
-            ctx.Out(addr + "\t" + wb.GetValue(addr).ToCanonicalString() + "\n");
+            ctx.Out(CellArgs.Echo(addr) + "\t" + wb.GetValue(addr).ToCanonicalString() + "\n");
         return ExitCodes.Success;
     }
 

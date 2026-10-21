@@ -86,21 +86,10 @@ public static class SheetName
         rest = text;
         if (text.Length > 0 && text[0] == '\'')
         {
-            var name = new System.Text.StringBuilder();
-            int i = 1;
-            while (true)
-            {
-                if (i >= text.Length) return false; // unterminated quote
-                if (text[i] == '\'')
-                {
-                    if (i + 1 < text.Length && text[i + 1] == '\'') { name.Append('\''); i += 2; continue; }
-                    break; // the closing quote
-                }
-                name.Append(text[i++]);
-            }
-            if (i + 1 >= text.Length || text[i + 1] != '!' || !IsValid(name.ToString())) return false;
-            sheet = name.ToString();
-            rest = text[(i + 2)..];
+            if (!TryReadQuoted(text, out string name, out int end)) return false; // unterminated quote
+            if (end >= text.Length || text[end] != '!' || !IsValid(name)) return false;
+            sheet = name;
+            rest = text[(end + 1)..];
             return true;
         }
         int bang = text.IndexOf('!');
@@ -110,6 +99,31 @@ public static class SheetName
         sheet = prefix.ToString();
         rest = text[(bang + 1)..];
         return true;
+    }
+
+    /// <summary>
+    /// Reads the quoted sheet name that starts <paramref name="text"/> (whose first character is <c>'</c>), with <c>''</c>
+    /// for <c>'</c> (CR1.2). <paramref name="end"/> is the index just past the closing quote. False when the quote is
+    /// unterminated. The name itself is not validated. Shared with the CLI's script splitter (CR1.7, R87, D-58).
+    /// </summary>
+    internal static bool TryReadQuoted(string text, out string name, out int end)
+    {
+        var sb = new System.Text.StringBuilder();
+        int i = 1;
+        while (i < text.Length)
+        {
+            if (text[i] == '\'')
+            {
+                if (i + 1 < text.Length && text[i + 1] == '\'') { sb.Append('\''); i += 2; continue; }
+                name = sb.ToString();
+                end = i + 1;
+                return true;
+            }
+            sb.Append(text[i++]);
+        }
+        name = "";
+        end = text.Length;
+        return false;
     }
 
     /// <summary>A character an unquoted sheet prefix may contain: <c>[A-Za-z0-9_.]</c>.</summary>
