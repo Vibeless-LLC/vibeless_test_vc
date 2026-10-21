@@ -19,13 +19,14 @@
         <KeyBinding Modifiers="Ctrl" Key="V" Command="{Binding PasteCommand}" />
     </Window.InputBindings>
 
-    <!-- §11.2 layout, top to bottom: menu bar; name box and formula bar; grid; status bar. -->
+    <!-- §11.2 layout, top to bottom: menu bar; name box and formula bar; grid; sheet tab strip (CR1.8); status bar. -->
     <!-- D-49: nothing in the window takes input until startup (recovery) has completed. -->
     <Grid IsEnabled="{Binding IsReady}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -80,8 +81,57 @@
             </controls:GridControl>
         </ScrollViewer>
 
+        <!-- CR1.8, R88, D-59: the sheet tab strip. A ListBox, so UIA sees a list (SheetTabs) of selectable items
+             (SheetTab_<index>) whose selection is the active sheet (SelectedIndex; a UIA Select activates too). The strip
+             and its tabs never take keyboard focus, so typing always reaches the grid: a click or right-click activates
+             the tab under the mouse (MainWindow.xaml.cs), the context menu acts on the active sheet, and dragging a tab
+             onto another moves it there. -->
+        <ListBox Grid.Row="3" x:Name="SheetTabStrip" AutomationProperties.AutomationId="SheetTabs" AutomationProperties.Name="Sheet Tabs"
+                 ItemsSource="{Binding SheetTabs}" SelectedIndex="{Binding ActiveSheetIndex, Mode=TwoWay}" SelectionMode="Single"
+                 BorderThickness="0,1,0,0" Padding="0" AllowDrop="True" Focusable="False"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                 PreviewMouseLeftButtonDown="SheetTabs_PreviewMouseLeftButtonDown" PreviewMouseMove="SheetTabs_PreviewMouseMove"
+                 PreviewMouseLeftButtonUp="SheetTabs_PreviewMouseLeftButtonUp" SelectionChanged="SheetTabs_SelectionChanged"
+                 PreviewMouseRightButtonDown="SheetTabs_PreviewMouseRightButtonDown" DragOver="SheetTabs_DragOver" Drop="SheetTabs_Drop">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Padding" Value="14,3" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlDarkBrushKey}}" />
+                    <Setter Property="BorderThickness" Value="0,0,1,0" />
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="FontWeight" Value="Bold" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+            <ListBox.ContextMenu>
+                <ContextMenu AutomationProperties.AutomationId="SheetTabContextMenu">
+                    <MenuItem Header="_Add" Command="{Binding AddSheetCommand}" AutomationProperties.AutomationId="ContextAddSheet" />
+                    <MenuItem Header="_Rename..." Command="{Binding RenameSheetCommand}" AutomationProperties.AutomationId="ContextRenameSheet" />
+                    <MenuItem Header="_Delete" Command="{Binding DeleteSheetCommand}" AutomationProperties.AutomationId="ContextDeleteSheet" />
+                    <Separator />
+                    <MenuItem Header="Move _Left" Command="{Binding MoveSheetLeftCommand}" AutomationProperties.AutomationId="ContextMoveSheetLeft" />
+                    <MenuItem Header="Move _Right" Command="{Binding MoveSheetRightCommand}" AutomationProperties.AutomationId="ContextMoveSheetRight" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
+        </ListBox>
+
         <!-- TextBlock text is the UIA Name (TextBlockAutomationPeer); see DECISIONS D-37. -->
-        <StatusBar Grid.Row="3">
+        <StatusBar Grid.Row="4">
             <StatusBarItem>
                 <TextBlock x:Name="SelectionValueText" AutomationProperties.AutomationId="SelectionValue" Text="{Binding SelectionValue}" />
             </StatusBarItem>

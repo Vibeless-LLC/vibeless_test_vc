@@ -59,8 +59,8 @@ public sealed partial class MainViewModel : IGridEditSource
         }
     }
 
-    /// <summary>Name box text (§11.4): the active address; the user may type an address and press Enter
-    /// (<see cref="NavigateToNameBox"/>).</summary>
+    /// <summary>Name box text (§11.4): the active address, unqualified (R88); the user may type an address, optionally
+    /// sheet-qualified, and press Enter (<see cref="NavigateToNameBox"/>).</summary>
     public string NameBoxText
     {
         get => _nameBoxText;
@@ -104,13 +104,29 @@ public sealed partial class MainViewModel : IGridEditSource
 
     /// <summary>Name box Enter (§11.4): a valid address (<c>$</c> markers and lower case accepted, surrounding spaces
     /// ignored) commits any open edit and becomes the active cell, scrolled into view; the box then shows the canonical
-    /// address. An invalid address reverts the box. Returns true when it navigated.</summary>
+    /// address. An invalid address reverts the box. A sheet-qualified address (R82 prefix rules, <c>Data!B2</c>,
+    /// <c>'My Sheet'!A1</c>, case-insensitive) activates that sheet and selects the cell (R88); an unknown sheet shows a
+    /// message and changes nothing. Returns true when it navigated.</summary>
     public bool NavigateToNameBox()
     {
-        if (!CellAddress.TryParse(_nameBoxText.Trim(), out CellAddress target))
+        string text = _nameBoxText.Trim();
+        if (!SheetName.TrySplitQualified(text, out string? sheet, out string rest)
+            || !CellAddress.TryParse(rest, out CellAddress target))
         {
             RevertNameBox();
             return false;
+        }
+        if (sheet is not null && !string.Equals(sheet, _workbook.ActiveSheet, StringComparison.OrdinalIgnoreCase))
+        {
+            if (FindSheetName(sheet) is not { } defined)
+            {
+                _dialogs.ShowError("Gridline", $"There is no sheet named '{sheet}'.");
+                RevertNameBox();
+                return false;
+            }
+            if (!ActivateSheet(defined, target)) return false; // commits an open edit first, on its own sheet
+            NameBoxText = _active.ToString();
+            return true;
         }
         if (!CommitPendingEdit()) return false;
         SelectCell(target, extend: false);

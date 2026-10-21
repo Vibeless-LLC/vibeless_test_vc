@@ -83,11 +83,11 @@ public sealed partial class MainViewModel : IGridDataSource
 
     public CellAddress GetLastUsedCell()
     {
-        var used = _workbook.GetUsedAddresses();
-        if (used.Count == 0) return new CellAddress(1, 1);
+        var used = _workbook.GetSheetCells(_workbook.ActiveSheetIndex); // the active sheet only (D-59)
+        if (used.Length == 0) return new CellAddress(1, 1);
         int maxColumn = 1;
-        foreach (string a in used) maxColumn = Math.Max(maxColumn, CellAddress.Parse(a).Column);
-        int maxRow = CellAddress.Parse(used[^1]).Row; // row-major order (§9.1)
+        foreach (var cell in used) maxColumn = Math.Max(maxColumn, CellAddress.Parse(cell.Key).Column);
+        int maxRow = CellAddress.Parse(used[^1].Key).Row; // row-major order
         return new CellAddress(maxColumn, maxRow);
     }
 

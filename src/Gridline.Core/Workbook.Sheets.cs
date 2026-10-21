@@ -38,6 +38,14 @@ public sealed partial class Workbook
         }
     }
 
+    /// <summary>The index of the active sheet in <see cref="SheetNames"/>, O(sheets). Internal: the App's sheet tab strip
+    /// and per-sheet scans (CR1.8, R88, D-59).</summary>
+    internal int ActiveSheetIndex => _sheets.IndexOf(_active);
+
+    /// <summary>The number of non-empty cells on the active sheet, O(1). Internal: the App's selection-scan strategy
+    /// (SelectionSum, Delete, Copy) works on the active sheet only (CR1.8, R88, D-59).</summary>
+    internal int ActiveSheetUsedCellCount => _active.Cells.Count;
+
     /// <summary>
     /// Adds an empty sheet named <paramref name="name"/> at <paramref name="index"/>, or at the end when null (CR1.3);
     /// one undo step (§9.3). The active sheet does not change (R80). Formulas that referenced the name as a missing

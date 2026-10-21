@@ -20,6 +20,10 @@ public sealed partial class MainViewModel
 
     private CellRange? _copiedRange;
     private string? _copiedText;
+    private string? _copiedSheet; // the sheet the copied range is on (CR1.8, D-59), followed through renames
+
+    /// <summary>The sheet of the remembered copy, or null when there is none (R47, D-59).</summary>
+    internal string? CopiedSheet => _copiedSheet;
 
     /// <summary>Copy (Ctrl+C). Returns true when the clipboard was set.</summary>
     public bool Copy()
@@ -40,6 +44,7 @@ public sealed partial class MainViewModel
         }
         _copiedRange = range;
         _copiedText = text;
+        _copiedSheet = _workbook.ActiveSheet;
         return true;
     }
 
@@ -62,11 +67,14 @@ public sealed partial class MainViewModel
     internal bool IsInternalPaste(string? clipboardText) =>
         _copiedRange is not null && string.Equals(clipboardText, _copiedText, StringComparison.Ordinal);
 
+    /// <remarks>The source is qualified with the copied range's sheet (R83), so a copy pasted after switching sheets copies
+    /// from the sheet it was taken from into the active sheet (D-59).</remarks>
     private bool PasteInternal(CellRange source)
     {
         try
         {
-            _workbook.CopyPaste(source.ToString(), _active.ToString()); // one undo step; references shift (§9.4)
+            string qualified = SheetName.Format(_copiedSheet!) + "!" + source.ToString();
+            _workbook.CopyPaste(qualified, _active.ToString()); // one undo step; references shift (§9.4)
         }
         catch (ArgumentException ex) // the destination exceeds the grid, or a shifted formula is too long (R55)
         {
@@ -97,18 +105,22 @@ public sealed partial class MainViewModel
     {
         _copiedRange = null;
         _copiedText = null;
+        _copiedSheet = null;
     }
 
     /// <summary>R47, final review (as Excel cancels copy mode on an edit): when a change touches any address inside the
     /// copied range (an edit, a paste, Undo/Redo, or a formula there whose value changed), the internal copy is forgotten,
     /// so the next paste is external and parses the copied text instead of copying the range's new contents. O(changed
-    /// addresses) and only while a copy is remembered.</summary>
+    /// addresses) and only while a copy is remembered. The addresses follow R81: unqualified while the workbook has one
+    /// sheet (which is then the copied range's sheet), else qualified; only those on the copied sheet count (D-59).</summary>
     private void ForgetInternalCopyIfTouched(IReadOnlyCollection<string> addresses)
     {
         if (_copiedRange is not { } range) return;
         foreach (string address in addresses)
         {
-            if (CellAddress.TryParse(address, out CellAddress cell) && range.Contains(cell))
+            if (!SheetName.TrySplitQualified(address, out string? sheet, out string rest)) continue;
+            if (sheet is not null && !string.Equals(sheet, _copiedSheet, StringComparison.OrdinalIgnoreCase)) continue;
+            if (CellAddress.TryParse(rest, out CellAddress cell) && range.Contains(cell))
             {
                 ForgetInternalCopy();
                 return;

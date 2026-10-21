@@ -8,7 +8,8 @@ namespace Gridline.App.ViewModels;
 /// The main window's ViewModel (§11): owns the <see cref="Core.Workbook"/>, the file path, the title and the menu
 /// commands. Partials: Selection (active cell and selection), Editing (§11.4), Files (§11.5 file commands and the
 /// unsaved-changes prompt), Csv (§11.5 Import/Export CSV), Structure (§11.5 header selection, Insert and Delete),
-/// Clipboard (§11.6) and Recovery (§11.6 autosave and recovery, the startup gate). Built-in WPF binding only.
+/// Clipboard (§11.6), Recovery (§11.6 autosave and recovery, the startup gate) and Sheets (CR1.8 sheet tab strip).
+/// Built-in WPF binding only.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -48,7 +49,9 @@ public sealed partial class MainViewModel : ObservableObject
         PasteCommand = new RelayCommand(() => Paste(), Ready(CanUseClipboard));
         InsertRowsOrColumnsCommand = new RelayCommand(() => InsertSelected(), CanEditStructure);
         DeleteRowsOrColumnsCommand = new RelayCommand(() => DeleteSelected(), CanEditStructure);
+        CreateSheetCommands();
 
+        RefreshSheetTabs();
         OnSelectionMoved();
     }
 
@@ -59,6 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
     [
         NewCommand, OpenCommand, SaveCommand, SaveAsCommand, ImportCsvCommand, ExportCsvCommand, ExitCommand,
         UndoCommand, RedoCommand, CopyCommand, PasteCommand, InsertRowsOrColumnsCommand, DeleteRowsOrColumnsCommand,
+        AddSheetCommand, RenameSheetCommand, DeleteSheetCommand, MoveSheetLeftCommand, MoveSheetRightCommand,
     ];
 
     /// <summary>The workbook currently shown. Replaced by New and by opening a file.</summary>
@@ -117,6 +121,7 @@ public sealed partial class MainViewModel : ObservableObject
         SetFilePath(filePath);
         _anchor = _active = new Core.Addressing.CellAddress(1, 1);
         _headerAxis = null;
+        RefreshSheetTabs(); // CR1.8: the adopted workbook's sheets and active sheet (R88)
         RefreshDocumentState();
         ContentChanged?.Invoke(this, EventArgs.Empty);
         OnSelectionMoved(); // the selection is reset to A1, so the grid scrolls there
@@ -125,14 +130,18 @@ public sealed partial class MainViewModel : ObservableObject
     private void Undo()
     {
         if (_isEditing) { EditTextHistory?.Undo(); RaiseUndoRedoCanExecuteChanged(); return; } // R49
+        var (names, active) = (_workbook.SheetNames, _workbook.ActiveSheet);
         _workbook.Undo();
+        AfterHistoryStep(names, active); // R88: the tabs follow the sheet list and the active sheet
         RefreshDocumentState();
     }
 
     private void Redo()
     {
         if (_isEditing) { EditTextHistory?.Redo(); RaiseUndoRedoCanExecuteChanged(); return; } // R49
+        var (names, active) = (_workbook.SheetNames, _workbook.ActiveSheet);
         _workbook.Redo();
+        AfterHistoryStep(names, active);
         RefreshDocumentState();
     }
 

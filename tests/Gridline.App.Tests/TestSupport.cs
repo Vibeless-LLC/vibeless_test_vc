@@ -82,6 +82,18 @@ internal sealed class FakeDialogService : IDialogService
         Recoveries.Add(recovery);
         OnRecovery?.Invoke(recovery);
     }
+
+    /// <summary>The current name passed to each Rename dialog, in order (CR1.8, R88).</summary>
+    public List<string> SheetNamePrompts { get; } = [];
+
+    /// <summary>What the Rename dialog returns (null = cancelled).</summary>
+    public string? SheetNameAnswer { get; set; }
+
+    public string? PromptSheetName(string currentName)
+    {
+        SheetNamePrompts.Add(currentName);
+        return SheetNameAnswer;
+    }
 }
 
 /// <summary>An autosave clock driven by the test: <see cref="Fire"/> raises one tick.</summary>
