@@ -190,8 +190,9 @@ public sealed partial class Workbook
     /// <summary>
     /// Rename (either direction): the rewritten formulas get their recorded text, the sheet its new name and binding, the
     /// names their new prefix. The rewritten formulas reference the same cells as before, so their values cannot change:
-    /// they keep their edges (<see cref="DependencyGraph.RenameSheetReferences"/>) and are not re-evaluated. Forward, their
-    /// trees are renamed rather than re-parsed (<see cref="SheetRenamer"/>); undo parses the verbatim old text. Only
+    /// they keep their edges (<see cref="DependencyGraph.RenameSheetReferences"/>) and are not re-evaluated. Their trees
+    /// are exactly parse(input) (§5.5): forward they are built by <see cref="SheetRenamer"/> without re-parsing (P-8), undo
+    /// parses the verbatim old text. Only
     /// formulas whose resolution changes are recalculated: those that named the new name as a missing sheet (now bound),
     /// and those still naming the old name afterwards (now missing). A rename that changes no value recalculates nothing (P-8).
     /// </summary>
@@ -205,6 +206,7 @@ public sealed partial class Workbook
 
         // Pure: every rewritten cell is a formula before and after.
         var edits = step.CellEdits;
+        ISheetCasingResolver? casing = forward ? new RenamedSheetCasing(this, to) : null;
         var keys = new int[edits.Length];
         var sheets = new Sheet[edits.Length];
         var olds = new Entry[edits.Length];
@@ -214,11 +216,13 @@ public sealed partial class Workbook
         {
             sheets[i] = ExistingSheet(edits[i].Sheet);
             keys[i] = CellKey.Pack(edits[i].Address);
-            if (!sheets[i].Cells.TryGetValue(keys[i], out var old) || old.Formula?.Root is not { } root)
+            if (!sheets[i].Cells.TryGetValue(keys[i], out var old) || old.Formula?.Root is null)
                 throw new InvalidOperationException($"The rewritten cell {edits[i].Address} is not a formula.");
             olds[i] = old;
+            // The installed tree is exactly parse(input), so later re-emissions depend only on the stored input (§5.5).
+            // Forward it is built by the canonicalising AST rename (P-8); undo parses the verbatim old text.
             news[i] = forward
-                ? new Entry(edits[i].NewInput, ParsedFormula.Ok(SheetRenamer.Rename(root, from, to)), old.Value)
+                ? new Entry(edits[i].NewInput, ParsedFormula.Ok(SheetRenamer.Rename(old.Formula.Root, from, to, _nameCasing, casing!)), old.Value)
                 : CreateEntry(edits[i].OldInput, old.Value);
             rewrites[i] = (SheetCellKey.Pack(edits[i].Sheet, keys[i]), news[i].Formula
                 ?? throw new InvalidOperationException($"The rewritten cell {edits[i].Address} would not be a formula."));

@@ -268,6 +268,14 @@ public sealed partial class Workbook
         return sheet.Cells.TryGetValue(CellKey.Pack(cell), out var e) ? e.Value : CellValue.Blank;
     }
 
+    /// <summary>Test seam (§5.5, D-54): the parsed formula installed for a cell (null for a constant or empty cell), so
+    /// tests can check that it is exactly what parsing the stored input gives.</summary>
+    internal ParsedFormula? GetInstalledFormula(string address)
+    {
+        var (sheet, cell) = ResolveAddress(address, nameof(address));
+        return sheet.Cells.TryGetValue(CellKey.Pack(cell), out var e) ? e.Formula : null;
+    }
+
     /// <summary>The number of non-empty cells on every sheet, O(sheets) (the count <see cref="GetUsedAddresses"/> would
     /// return, without the sort). Internal: not part of the §9.1 surface; the App uses it to choose a selection-scan strategy.</summary>
     internal int UsedCellCount

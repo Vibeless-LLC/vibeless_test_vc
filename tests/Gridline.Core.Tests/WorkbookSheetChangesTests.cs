@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Gridline.Core.Evaluation;
 using Gridline.Core.Functions;
+using Gridline.Core.Parsing;
 
 namespace Gridline.Core.Tests;
 
@@ -646,6 +647,132 @@ public class WorkbookSheetChangesTests
         {
             Assert.True(wb.Redo());
             Assert.Equal(StripActive(states[i]), StripActive(Dump(wb)));
+        }
+    }
+
+    // ---- The installed tree is exactly parse(input) (§5.5): re-emission depends only on the stored input ----
+
+    private static readonly FunctionArityAdapter Arities = new(BuiltInFunctionTable.Default);
+
+    /// <summary>For every formula cell, printing the installed tree with no rewriter and no resolvers equals printing
+    /// <c>FormulaParser.Parse(input)</c> the same way (so the trees agree in every casing the printer keeps).</summary>
+    internal static void AssertInstalledTreesMatchInputs(Workbook wb)
+    {
+        foreach (var a in wb.GetUsedAddresses())
+        {
+            string input = wb.GetInput(a);
+            var installed = wb.GetInstalledFormula(a);
+            var interpreted = CellInputInterpreter.Interpret(input);
+            if (interpreted.Kind != CellInputKind.Formula)
+            {
+                Assert.Null(installed);
+                continue;
+            }
+            var parsed = FormulaParser.Parse(interpreted.FormulaText, Arities);
+            Assert.NotNull(installed);
+            Assert.Equal(parsed.Root is null, installed.Root is null);
+            if (parsed.Root is null) continue;
+            Assert.Equal(FormulaPrinter.Print(parsed.Root, null, null, null), FormulaPrinter.Print(installed.Root!, null, null, null));
+            Assert.Equal(TreeDump(parsed.Root), TreeDump(installed.Root!)); // every field, ordinal (function-name casing too)
+        }
+    }
+
+    /// <summary>A structural dump of a tree with every field as stored (iterative, pre-order).</summary>
+    private static string TreeDump(FormulaNode root)
+    {
+        var sb = new StringBuilder();
+        var stack = new Stack<FormulaNode>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            sb.Append(node.GetType().Name).Append('(');
+            switch (node)
+            {
+                case NumberNode n: sb.Append(n.Lexeme); break;
+                case StringNode t: sb.Append(t.Value); break;
+                case BooleanNode b: sb.Append(b.Value); break;
+                case ErrorNode e: sb.Append(e.Code); break;
+                case CellRefNode c: sb.Append(c.Sheet).Append('!').Append(c.Reference); break;
+                case RangeNode r: sb.Append(r.Sheet).Append('!').Append(r.Start).Append(':').Append(r.End); break;
+                case NameNode nm: sb.Append(nm.Name); break;
+                case FunctionCallNode f:
+                    sb.Append(f.Name).Append('/').Append(f.Arguments.Count);
+                    for (int i = f.Arguments.Count - 1; i >= 0; i--) stack.Push(f.Arguments[i]);
+                    break;
+                case UnaryNode u: sb.Append(u.Operator); stack.Push(u.Operand); break;
+                case PercentNode pc: stack.Push(pc.Operand); break;
+                case BinaryNode bn: sb.Append(bn.Operator); stack.Push(bn.Right); stack.Push(bn.Left); break;
+                case ParenNode g: stack.Push(g.Inner); break;
+            }
+            sb.Append(')');
+        }
+        return sb.ToString();
+    }
+
+    [Fact]
+    public void Rename_ThenDeleteName_ReEmitsTheStoredCasing_LikeAFreshLoad_CopyPaste()
+    {
+        var wb = Book("Data");
+        wb.DefineName("Rate", "$C$1");
+        wb.SetCell("A1", "=Data!B1*rate");
+        wb.RenameSheet("Data", "Info");
+        Assert.Equal("=Info!B1*Rate", wb.GetInput("A1"));
+        wb.DeleteName("Rate");
+        wb.CopyPaste("A1", "A2");
+        Assert.Equal("=Info!B2*Rate", wb.GetInput("A2")); // not "rate": the tree is parse("=Info!B1*Rate")
+        AssertInstalledTreesMatchInputs(wb);
+    }
+
+    [Fact]
+    public void Rename_ThenDeleteName_ReEmitsTheStoredCasing_LikeAFreshLoad_InsertRows()
+    {
+        var wb = Book("Data");
+        wb.DefineName("Rate", "$C$1");
+        wb.SetCell("A1", "=Data!B1*rate");
+        wb.RenameSheet("Data", "Info");
+        wb.DeleteName("Rate");
+        wb.ActiveSheet = "Info";
+        wb.InsertRows(1, 1);
+        Assert.Equal("=Info!B2*Rate", wb.GetInput("Sheet1!A1"));
+
+        var fresh = Workbook.FromSheets([new LoadedSheet("Sheet1", [new("A1", "=Info!B1*Rate")]), new LoadedSheet("Info", [])], "Info", []);
+        fresh.InsertRows(1, 1);
+        Assert.Equal(fresh.GetInput("Sheet1!A1"), wb.GetInput("Sheet1!A1"));
+    }
+
+    [Fact]
+    public void RenameAndDelete_InstallTreesThatEqualParsingTheNewInput()
+    {
+        var wb = Book("Data", "other", "Spare");
+        wb.DefineName("Rate", "$C$1");
+        wb.DefineName("TOTAL", "Data!$A$1:$B$2");
+        wb.ApplyBatch([
+            new("A1", "=Data!B1*rate+OTHER!A1"),
+            new("A2", "=sum(data!A1:B2, total)+if(gone!A1>0,1,2)"),
+            new("A3", "=-data!A1%+(spare!B2^2)&\"x\"\"y\""),
+            new("A4", "=sumif(Data!A1:A2,\">0\",Spare!B1)+averageif(total,\"<>\",data!C1)"),
+            new("other!A1", "=Data!A1+new!A1+NEW!B1"),
+            new("Data!C3", "=data!A1+a1"),
+            new("A5", "=Data!A1+"),
+        ]);
+        wb.RenameSheet("Data", "New");
+        AssertInstalledTreesMatchInputs(wb);
+        wb.RenameSheet("new", "NEW");
+        AssertInstalledTreesMatchInputs(wb);
+        wb.RenameSheet("NEW", "My Data");
+        AssertInstalledTreesMatchInputs(wb);
+        wb.DeleteSheet("My Data");
+        AssertInstalledTreesMatchInputs(wb);
+        while (wb.CanUndo)
+        {
+            wb.Undo();
+            AssertInstalledTreesMatchInputs(wb);
+        }
+        while (wb.CanRedo)
+        {
+            wb.Redo();
+            AssertInstalledTreesMatchInputs(wb);
         }
     }
 
