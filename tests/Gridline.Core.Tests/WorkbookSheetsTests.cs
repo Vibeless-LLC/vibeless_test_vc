@@ -739,16 +739,16 @@ public class WorkbookSheetsTests
     }
 
     [Fact]
-    public void CopyPaste_AcrossSheets_IsNotSupportedYet_AndChangesNothing()
+    public void CopyPaste_AcrossSheets_Works_UnknownSheetsChangeNothing() // CR1.3 (Task 5): was NotSupportedException (D-52, D-55)
     {
         var wb = Book("Data");
         wb.SetCell("A1", "1");
         wb.MarkSaved();
-        Assert.Throws<NotSupportedException>(() => wb.CopyPaste("A1", "Data!A1"));
         Assert.ThrowsAny<ArgumentException>(() => wb.CopyPaste("Nope!A1", "A2"));
         Assert.ThrowsAny<ArgumentException>(() => wb.CopyPaste("A1", "Nope!A2"));
         Assert.False(wb.IsDirty);
-        Assert.Equal("", wb.GetInput("Data!A1"));
+        wb.CopyPaste("A1", "Data!A1");
+        Assert.Equal("1", wb.GetInput("Data!A1"));
     }
 
     // ---- Multi-sheet loader entry (CR1.5, for the v2 loader) ----

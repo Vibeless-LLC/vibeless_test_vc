@@ -260,7 +260,7 @@ public class PerformanceGates(ITestOutputHelper output)
     /// Sheet1!A{r} is <c>=Sheet2!B{r}*2</c>, and Sheet{k}!A{r} (k = 2..10) is <c>=Sheet1!A{r}+Sheet{k+1}!B{r}</c> (Sheet10
     /// uses Sheet2), so 90,000 formulas name Sheet1, which has 10,000 dependents chained further.
     /// </summary>
-    private static Workbook TenSheetsReferencingSheet1()
+    internal static Workbook TenSheetsReferencingSheet1()
     {
         var wb = new Workbook();
         for (int k = 2; k <= 10; k++) wb.AddSheet("Sheet" + k);

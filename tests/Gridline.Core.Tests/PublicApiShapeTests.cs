@@ -185,8 +185,21 @@ public class PublicApiShapeTests
         AssertMethod(t, "DeleteRows", isStatic: false, typeof(void), typeof(int), typeof(int));
         AssertMethod(t, "InsertColumns", isStatic: false, typeof(void), typeof(int), typeof(int));
         AssertMethod(t, "DeleteColumns", isStatic: false, typeof(void), typeof(int), typeof(int));
-        Assert.Equal(["row", "count"], t.GetMethod("InsertRows")!.GetParameters().Select(p => p.Name));
-        Assert.Equal(["column", "count"], t.GetMethod("DeleteColumns")!.GetParameters().Select(p => p.Name));
+        // CR1.3 adds (string sheet, …) overloads, so the lookup names the (int, int) signature (D-55).
+        Assert.Equal(["row", "count"], t.GetMethod("InsertRows", [typeof(int), typeof(int)])!.GetParameters().Select(p => p.Name));
+        Assert.Equal(["column", "count"], t.GetMethod("DeleteColumns", [typeof(int), typeof(int)])!.GetParameters().Select(p => p.Name));
+    }
+
+    // CR1.3, R84: the per-sheet structure overloads, exactly as written.
+    [Fact]
+    public void Workbook_HasTheCr13SheetStructureOverloads()
+    {
+        var t = typeof(Workbook);
+        foreach (var (name, position) in new[] { ("InsertRows", "row"), ("DeleteRows", "row"), ("InsertColumns", "column"), ("DeleteColumns", "column") })
+        {
+            AssertMethod(t, name, isStatic: false, typeof(void), typeof(string), typeof(int), typeof(int));
+            Assert.Equal(["sheet", position, "count"], t.GetMethod(name, [typeof(string), typeof(int), typeof(int)])!.GetParameters().Select(p => p.Name));
+        }
     }
 
     // D-53: the multi-sheet plumbing of evaluation (CR1.2, CR1.4) stays internal, so the public surface is §9.1 + CR1.3.

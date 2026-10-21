@@ -7,7 +7,7 @@ namespace Gridline.Core.Tests;
 
 // Requirement IDs: §9.3 / §14 (undo of any sequence restores the exact prior inputs, names and sheet list; redo reapplies),
 // CR1.3 (AddSheet, RenameSheet, DeleteSheet, MoveSheet, ActiveSheet, qualified SetCell and DefineName), §9.2 (atomic
-// errors), §6.7 (incremental recalc equals a fresh load after every step), R78-R80, R85.
+// errors), §6.7 (incremental recalc equals a fresh load after every step), R78-R80, R85; R84 and cross-sheet CopyPaste (Task 5).
 public class SheetUndoPropertyTests
 {
     private abstract record Op;
@@ -20,6 +20,9 @@ public class SheetUndoPropertyTests
     private sealed record ActivateOp(string Name) : Op;
     private sealed record DeleteNameOp(string Name) : Op;
     private sealed record ReemitOp(bool Paste) : Op; // InsertRows(1,1) or CopyPaste(A1:B2, A3) on the active sheet
+    // CR1.3, R84 (Task 5): a structure edit on a named sheet (Kind 0-3), or CopyPaste A1:B2 of the active sheet to
+    // Sheet!B1 (4) or Sheet!A1:B2 to the active sheet's A2 (5).
+    private sealed record SheetEditOp(int Kind, string Sheet, int Start, int Count) : Op;
     private sealed record UndoOp : Op;
     private sealed record RedoOp : Op;
 
@@ -52,6 +55,8 @@ public class SheetUndoPropertyTests
         (1, Gen.Elements(SheetPool).Select(n => (Op)new ActivateOp(n))),
         (1, Gen.Elements("Rate", "total").Select(n => (Op)new DeleteNameOp(n))),
         (2, Gen.Elements(false, true).Select(p => (Op)new ReemitOp(p))),
+        (3, from k in Gen.Choose(0, 5) from n in Gen.Elements(SheetPool) from st in Gen.Choose(1, 3) from c in Gen.Choose(1, 2)
+            select (Op)new SheetEditOp(k, n, st, c)),
         (3, Gen.Constant((Op)new UndoOp())),
         (2, Gen.Constant((Op)new RedoOp())));
 
@@ -85,6 +90,20 @@ public class SheetUndoPropertyTests
         else wb.InsertRows(1, 1);
     }
 
+    private static void SheetEdit(Workbook wb, SheetEditOp op)
+    {
+        string prefix = SheetName.Format(SheetName.IsValid(op.Sheet) ? op.Sheet : "Data") + "!";
+        switch (op.Kind)
+        {
+            case 0: wb.InsertRows(op.Sheet, op.Start, op.Count); break;
+            case 1: wb.DeleteRows(op.Sheet, op.Start, op.Count); break;
+            case 2: wb.InsertColumns(op.Sheet, op.Start, op.Count); break;
+            case 3: wb.DeleteColumns(op.Sheet, op.Start, op.Count); break;
+            case 4: wb.CopyPaste("A1:B2", prefix + "B1"); break;
+            default: wb.CopyPaste(prefix + "A1:B2", "A2"); break;
+        }
+    }
+
     /// <summary>Every value equals that of a fresh load of the same sheets, inputs and names (§6.7).</summary>
     private static bool ValuesMatchFresh(Workbook wb)
     {
@@ -105,6 +124,7 @@ public class SheetUndoPropertyTests
             case ActivateOp a: wb.ActiveSheet = a.Name; break;
             case DeleteNameOp d: wb.DeleteName(d.Name); break;
             case ReemitOp r: Reemit(wb, r); break;
+            case SheetEditOp e: SheetEdit(wb, e); break;
             default: throw new InvalidOperationException();
         }
     }
@@ -136,7 +156,7 @@ public class SheetUndoPropertyTests
                     bool canUndo = wb.CanUndo, canRedo = wb.CanRedo;
                     // §5.5: re-emission depends only on the stored inputs, so the live workbook (whatever its history)
                     // and a fresh load of the same state must produce the same inputs.
-                    Workbook? fresh = op is ReemitOp ? Fresh(wb) : null;
+                    Workbook? fresh = op is ReemitOp or SheetEditOp ? Fresh(wb) : null;
                     try
                     {
                         Apply(wb, op);
@@ -150,7 +170,7 @@ public class SheetUndoPropertyTests
                     string after = Snap(wb);
                     if (fresh is not null)
                     {
-                        Reemit(fresh, (ReemitOp)op);
+                        Apply(fresh, op);
                         if (Snap(fresh) != after) return false;
                     }
                     if (after == before) // a no-op (R24, R60, R79) or activation: no step
@@ -196,6 +216,17 @@ public class SheetUndoPropertyTests
         Op[] ops = [new SetOp("A1", "=data!A1*rate"), new SetOp("B1", "=sum(data!A1:B2)+total"), new DefineOp("Total", "Data!$A$1"),
             new RenameOp("Data", "Info"), new DeleteNameOp("Rate"), new DeleteNameOp("total"), new ReemitOp(true), new ReemitOp(false),
             new UndoOp(), new UndoOp(), new UndoOp(), new UndoOp(), new RedoOp(), new RedoOp(), new RedoOp(), new RedoOp()];
+        Assert.True(Run(ops));
+    }
+
+    [Fact]
+    public void FixedSequence_PerSheetStructureEditsAndCrossSheetPaste()
+    {
+        Op[] ops = [new SetOp("Data!B2", "=A1+Sheet1!A1+data!A1"), new SetOp("'My Sheet'!A1", "=SUM(Data!A1:B2)"),
+            new DefineOp("Total", "Data!$A$1:$B$2"), new SheetEditOp(0, "data", 1, 1), new SheetEditOp(4, "Data", 1, 1),
+            new SheetEditOp(3, "Data", 1, 1), new RenameOp("Data", "Info"), new SheetEditOp(5, "Info", 1, 1),
+            new SheetEditOp(1, "My Sheet", 1, 2), new SheetEditOp(2, "Gone", 1, 1), new UndoOp(), new UndoOp(), new UndoOp(),
+            new UndoOp(), new RedoOp(), new RedoOp(), new RedoOp(), new RedoOp()];
         Assert.True(Run(ops));
     }
 }

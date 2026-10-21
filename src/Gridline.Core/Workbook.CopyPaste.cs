@@ -20,18 +20,17 @@ public sealed partial class Workbook
     /// </summary>
     /// <param name="sourceRange">A range (corners in any order) or a single cell address, $ markers allowed (§4.2).</param>
     /// <param name="destinationTopLeft">A single cell address.</param>
-    /// <remarks>Both addresses may be qualified (R83); unqualified means the active sheet. The source range has one sheet.</remarks>
+    /// <remarks>Both addresses may be qualified (R83); unqualified means the active sheet. The source range has one sheet,
+    /// and the destination may be another sheet (CR1.3): unqualified references in pasted formulas stay unqualified, so
+    /// they point at the destination sheet; qualified references keep their sheet. Relative components of both shift.</remarks>
     /// <exception cref="ArgumentException">An argument is null or invalid or names an unknown sheet, the destination
     /// rectangle exceeds the grid, or a rewritten formula would be longer than <see cref="MaxInputLength"/> (R55). Nothing changes.</exception>
-    /// <exception cref="NotSupportedException">The source and destination are on different sheets (not yet supported, D-52).</exception>
     public void CopyPaste(string sourceRange, string destinationTopLeft)
     {
         ArgumentNullException.ThrowIfNull(sourceRange);
         var sheet = SplitSheet(sourceRange, nameof(sourceRange), out string sourceText);
         var source = ParseRangeOrCell(sourceText, sourceRange, nameof(sourceRange));
         var (destSheet, dest) = ResolveAddress(destinationTopLeft, nameof(destinationTopLeft));
-        if (destSheet != sheet)
-            throw new NotSupportedException("Copying between sheets is not supported yet; nothing was changed.");
         int bottom = dest.Row + (source.BottomRight.Row - source.TopLeft.Row);
         int right = dest.Column + (source.BottomRight.Column - source.TopLeft.Column);
         if (bottom > MaxRows || right > MaxColumns)
@@ -41,7 +40,10 @@ public sealed partial class Workbook
         int rowOffset = dest.Row - source.TopLeft.Row;
         int columnOffset = dest.Column - source.TopLeft.Column;
 
-        // Snapshot (pure): the new input of every destination cell whose source cell is used.
+        // Snapshot (pure): the new input of every destination cell whose source cell is used. The source and destination
+        // may be different sheets (CR1.3): printing keeps every reference's sheet prefix as written (unqualified stays
+        // unqualified, so it now points at the destination sheet; qualified keeps its sheet, in defined casing), and
+        // shifts relative components of both kinds alike (§9.4).
         var shifter = new ReferenceShifter(rowOffset, columnOffset);
         var pasted = new Dictionary<int, (CellAddress Cell, string Input)>();
         foreach (int key in UsedKeysIn(sheet.Cells, source))
@@ -58,13 +60,13 @@ public sealed partial class Workbook
         var changes = ImmutableArray.CreateBuilder<CellEdit>(pasted.Count);
         foreach (var (key, (cell, input)) in pasted)
         {
-            string current = sheet.Cells.TryGetValue(key, out var e) ? e.Input : "";
+            string current = destSheet.Cells.TryGetValue(key, out var e) ? e.Input : "";
             if (!string.Equals(current, input, StringComparison.Ordinal))
-                changes.Add(new CellEdit(cell, current, input) { Sheet = sheet.Id });
+                changes.Add(new CellEdit(cell, current, input) { Sheet = destSheet.Id });
         }
-        foreach (int key in UsedKeysIn(sheet.Cells, target)) // used destination cells under a blank source cell are cleared
+        foreach (int key in UsedKeysIn(destSheet.Cells, target)) // used destination cells under a blank source cell are cleared
             if (!pasted.ContainsKey(key))
-                changes.Add(new CellEdit(CellKey.Unpack(key), sheet.Cells[key].Input, "") { Sheet = sheet.Id });
+                changes.Add(new CellEdit(CellKey.Unpack(key), destSheet.Cells[key].Input, "") { Sheet = destSheet.Id });
 
         if (changes.Count == 0)
         {

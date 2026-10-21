@@ -14,41 +14,90 @@ namespace Gridline.Core;
 public sealed partial class Workbook
 {
     /// <summary>
-    /// Inserts <paramref name="count"/> empty rows at <paramref name="row"/> (§9.5): cells at rows ≥ row move down, and
-    /// every reference in every formula and name definition is adjusted (relative and absolute alike). Formulas with a
+    /// Inserts <paramref name="count"/> empty rows at <paramref name="row"/> on the active sheet (§9.5, CR1.3): cells at rows ≥ row move down, and
+    /// every reference to the moved cells in every formula and name definition is adjusted (relative and absolute alike). Formulas with a
     /// changed reference are re-emitted canonically (§5.5); all others keep their text verbatim. One undo step (§9.3);
     /// an edit that moves no input and changes no formula or name is a no-op with no step and no event (R63).
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">row is not 1..<see cref="MaxRows"/>, or count &lt; 1 (R62).</exception>
     /// <exception cref="InvalidOperationException">A cell with input would move past <see cref="MaxRows"/>, or a
     /// rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
-    public void InsertRows(int row, int count) => Restructure(StructureAxis.Rows, insert: true, row, count, nameof(row));
+    public void InsertRows(int row, int count) => Restructure(_active, StructureAxis.Rows, insert: true, row, count, nameof(row));
 
     /// <summary>
     /// Deletes rows [row, row+count-1] (§9.5): their cells are removed, cells below move up, and every reference is
     /// adjusted (a reference into the deleted rows becomes #REF!; a range keeps its surviving rows). Otherwise as
-    /// <see cref="InsertRows"/>.
+    /// <see cref="InsertRows(int, int)"/>.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">row &lt; 1, count &lt; 1, or row + count - 1 &gt; <see cref="MaxRows"/> (R62).</exception>
     /// <exception cref="InvalidOperationException">A rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
-    public void DeleteRows(int row, int count) => Restructure(StructureAxis.Rows, insert: false, row, count, nameof(row));
+    public void DeleteRows(int row, int count) => Restructure(_active, StructureAxis.Rows, insert: false, row, count, nameof(row));
 
     /// <summary>Inserts <paramref name="count"/> empty columns at the 1-based <paramref name="column"/>; the column
-    /// counterpart of <see cref="InsertRows"/> (§9.5).</summary>
+    /// counterpart of <see cref="InsertRows(int, int)"/> (§9.5).</summary>
     /// <exception cref="ArgumentOutOfRangeException">column is not 1..<see cref="MaxColumns"/>, or count &lt; 1 (R62).</exception>
     /// <exception cref="InvalidOperationException">A cell with input would move past <see cref="MaxColumns"/>, or a
     /// rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
-    public void InsertColumns(int column, int count) => Restructure(StructureAxis.Columns, insert: true, column, count, nameof(column));
+    public void InsertColumns(int column, int count) => Restructure(_active, StructureAxis.Columns, insert: true, column, count, nameof(column));
 
-    /// <summary>Deletes columns [column, column+count-1] (1-based); the column counterpart of <see cref="DeleteRows"/> (§9.5).</summary>
+    /// <summary>Deletes columns [column, column+count-1] (1-based); the column counterpart of <see cref="DeleteRows(int, int)"/> (§9.5).</summary>
     /// <exception cref="ArgumentOutOfRangeException">column &lt; 1, count &lt; 1, or column + count - 1 &gt; <see cref="MaxColumns"/> (R62).</exception>
     /// <exception cref="InvalidOperationException">A rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
-    public void DeleteColumns(int column, int count) => Restructure(StructureAxis.Columns, insert: false, column, count, nameof(column));
+    public void DeleteColumns(int column, int count) => Restructure(_active, StructureAxis.Columns, insert: false, column, count, nameof(column));
+
+    /// <summary>
+    /// Inserts <paramref name="count"/> empty rows at <paramref name="row"/> on <paramref name="sheet"/> (CR1.3, R84,
+    /// §9.5). Its cells at rows ≥ row move down. Adjusted: the unqualified references of its own formulas, the qualified
+    /// references to it from every sheet, and the names pointing into it. Unqualified references on other sheets and
+    /// references to other sheets are untouched. Otherwise as <see cref="InsertRows(int, int)"/>; one undo step.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">The sheet is null (R78).</exception>
+    /// <exception cref="ArgumentException">The sheet is unknown; lookup is case-insensitive (R78).</exception>
+    /// <exception cref="ArgumentOutOfRangeException">row is not 1..<see cref="MaxRows"/>, or count &lt; 1 (R62).</exception>
+    /// <exception cref="InvalidOperationException">A cell with input would move past <see cref="MaxRows"/>, or a
+    /// rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
+    public void InsertRows(string sheet, int row, int count) =>
+        Restructure(EditedSheet(sheet), StructureAxis.Rows, insert: true, row, count, nameof(row));
+
+    /// <summary>Deletes rows [row, row+count-1] of <paramref name="sheet"/> (CR1.3, R84, §9.5); the sheet counterpart of
+    /// <see cref="DeleteRows(int, int)"/>, adjusting references as <see cref="InsertRows(string, int, int)"/>.</summary>
+    /// <exception cref="ArgumentNullException">The sheet is null (R78).</exception>
+    /// <exception cref="ArgumentException">The sheet is unknown (R78).</exception>
+    /// <exception cref="ArgumentOutOfRangeException">row &lt; 1, count &lt; 1, or row + count - 1 &gt; <see cref="MaxRows"/> (R62).</exception>
+    /// <exception cref="InvalidOperationException">A rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
+    public void DeleteRows(string sheet, int row, int count) =>
+        Restructure(EditedSheet(sheet), StructureAxis.Rows, insert: false, row, count, nameof(row));
+
+    /// <summary>Inserts <paramref name="count"/> empty columns at the 1-based <paramref name="column"/> of
+    /// <paramref name="sheet"/> (CR1.3, R84, §9.5); the column counterpart of <see cref="InsertRows(string, int, int)"/>.</summary>
+    /// <exception cref="ArgumentNullException">The sheet is null (R78).</exception>
+    /// <exception cref="ArgumentException">The sheet is unknown (R78).</exception>
+    /// <exception cref="ArgumentOutOfRangeException">column is not 1..<see cref="MaxColumns"/>, or count &lt; 1 (R62).</exception>
+    /// <exception cref="InvalidOperationException">A cell with input would move past <see cref="MaxColumns"/>, or a
+    /// rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
+    public void InsertColumns(string sheet, int column, int count) =>
+        Restructure(EditedSheet(sheet), StructureAxis.Columns, insert: true, column, count, nameof(column));
+
+    /// <summary>Deletes columns [column, column+count-1] (1-based) of <paramref name="sheet"/> (CR1.3, R84, §9.5); the
+    /// column counterpart of <see cref="DeleteRows(string, int, int)"/>.</summary>
+    /// <exception cref="ArgumentNullException">The sheet is null (R78).</exception>
+    /// <exception cref="ArgumentException">The sheet is unknown (R78).</exception>
+    /// <exception cref="ArgumentOutOfRangeException">column &lt; 1, count &lt; 1, or column + count - 1 &gt; <see cref="MaxColumns"/> (R62).</exception>
+    /// <exception cref="InvalidOperationException">A rewritten formula would exceed <see cref="MaxInputLength"/>. Nothing changes.</exception>
+    public void DeleteColumns(string sheet, int column, int count) =>
+        Restructure(EditedSheet(sheet), StructureAxis.Columns, insert: false, column, count, nameof(column));
+
+    /// <summary>R78: the sheet a structure overload edits, looked up case-insensitively before anything else is checked.</summary>
+    private Sheet EditedSheet(string sheet)
+    {
+        ArgumentNullException.ThrowIfNull(sheet);
+        return FindSheet(sheet, nameof(sheet));
+    }
 
     /// <summary>Validates, computes the step payload (pure), and performs it unless it is a no-op (R63). The edit acts on
-    /// the active sheet (ruling P5-2, R84): its cells move, and so do the unqualified references of its formulas, the
+    /// <paramref name="edited"/> (R84; the unqualified overloads pass the active sheet): its cells move, and so do the unqualified references of its formulas, the
     /// qualified references to it from every sheet, and the names pointing into it (R77, R84). References to other sheets are untouched.</summary>
-    private void Restructure(StructureAxis axis, bool insert, int start, int count, string startParam)
+    private void Restructure(Sheet edited, StructureAxis axis, bool insert, int start, int count, string startParam)
     {
         bool rows = axis == StructureAxis.Rows;
         int bound = rows ? MaxRows : MaxColumns;
@@ -60,7 +109,6 @@ public sealed partial class Workbook
         if (!insert && (long)start + count - 1 > bound)
             throw new ArgumentOutOfRangeException(nameof(count), count, $"The deleted {unit}s {start}..{(long)start + count - 1} exceed {bound}.");
 
-        var edited = _active;
         var map = new StructureRewriter(axis, insert, start, count, edited.Name);
         bool moves = false;
         var removed = ImmutableArray.CreateBuilder<CellEdit>();
