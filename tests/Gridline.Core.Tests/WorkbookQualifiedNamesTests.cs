@@ -391,4 +391,45 @@ public class WorkbookQualifiedNamesTests
         Assert.Throws<ArgumentException>(() => Workbook.FromSheets(
             [new LoadedSheet("Data", [])], "Data", [P("Rate", "#ref!")]));
     }
+
+    /// <summary>CR1.5, R86, D-56: a version 1 file holds only unqualified targets and a version 2 file only qualified
+    /// ones; the exact #REF! is accepted in both, and a malformed value is still reported as invalid.</summary>
+    [Theory]
+    [InlineData("Unqualified", "$B$1", true)]
+    [InlineData("Unqualified", "$A$1:$B$2", true)]
+    [InlineData("Unqualified", "#REF!", true)]
+    [InlineData("Unqualified", "Data!$B$1", false)]
+    [InlineData("Unqualified", "'Data'!$B$1", false)]
+    [InlineData("Unqualified", "My Sheet!$B$1", false)]
+    [InlineData("Qualified", "Data!$B$1", true)]
+    [InlineData("Qualified", "data!$b$1", true)]
+    [InlineData("Qualified", "#REF!", true)]
+    [InlineData("Qualified", "$B$1", false)]
+    [InlineData("Qualified", "$A$1:$B$2", false)]
+    [InlineData("Qualified", "Nope!$B$1", false)]
+    [InlineData("Qualified", "Data!B1", false)]
+    [InlineData("Any", "$B$1", true)]
+    [InlineData("Any", "Data!$B$1", true)]
+    public void FromSheets_NameForm_RestrictsTheWrittenForm(string form, string refersTo, bool accepted)
+    {
+        Workbook Build() => Workbook.FromSheets([new LoadedSheet("Data", [P("B1", "4")])], "Data", [P("Rate", refersTo)], null, Enum.Parse<LoadedNameForm>(form));
+        if (accepted)
+        {
+            var wb = Build();
+            Assert.Equal(refersTo == "#REF!" ? "#REF!" : "Data!" + (refersTo.Contains(':') ? "$A$1:$B$2" : "$B$1"), wb.GetNames()[0].Value);
+        }
+        else
+        {
+            var ex = Assert.Throws<ArgumentException>(Build);
+            Assert.Equal("names", ex.ParamName);
+        }
+    }
+
+    [Fact]
+    public void FromSheets_NullRefersTo_MessageSaysNull()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Workbook.FromSheets(
+            [new LoadedSheet("Data", [])], "Data", [new KeyValuePair<string, string>("Rate", null!)]));
+        Assert.Equal("The refersTo of name 'Rate' is null.", ex.Message.Split(" (Parameter")[0]);
+    }
 }

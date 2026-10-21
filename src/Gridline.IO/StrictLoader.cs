@@ -6,13 +6,18 @@ using Gridline.Core.Addressing;
 namespace Gridline.IO;
 
 /// <summary>
-/// Strict §8.2 loader (R27). Pass 1 walks the document once (syntax, duplicate keys, top-level shape); the "cells"
-/// array is validated and collected only after the version/format checks, so an unsupported version always reports as
-/// such. Nothing is built until every entry is valid; the workbook is created by a single <see cref="Workbook.FromCells"/>.
+/// Strict §8.2 loader (R27) of format versions 1 and 2 (CR1.5, R86). Pass 1 walks the document once (syntax, duplicate
+/// keys, top-level shape); the "cells" (version 1) or "sheets" (version 2) array is validated and collected only after
+/// the version/format checks, so an unsupported version always reports as such. Nothing is built until every entry is
+/// valid; the workbook is created by a single <see cref="Workbook.FromSheets"/>. A version 1 file migrates to one sheet
+/// Sheet1 with its names qualified with Sheet1 (CR1.5).
 /// </summary>
 internal static class StrictLoader
 {
     private const int MaxDepth = 64;
+
+    /// <summary>The newest format version this build reads (CR1.5).</summary>
+    private const int MaxVersion = 2;
 
     public static Workbook Load(ReadOnlySpan<byte> data)
     {
@@ -51,10 +56,12 @@ internal static class StrictLoader
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? problem = null;
-        bool formatOk = false, hasFormat = false, hasVersion = false, hasCells = false;
+        bool formatOk = false, hasFormat = false, hasVersion = false;
+        bool hasCells = false, cellsIsArray = false, hasSheets = false, sheetsIsArray = false, hasActiveSheet = false;
         long version = 0;
         bool versionHuge = false;
-        Utf8JsonReader cellsReader = default;
+        string? activeSheet = null;
+        Utf8JsonReader cellsReader = default, sheetsReader = default;
         var names = new List<KeyValuePair<string, string>>();
 
         while (true)
@@ -82,15 +89,16 @@ internal static class StrictLoader
                     }
                     else
                     {
-                        // R54 (§8.2): any integral JSON number is an integer, so 1.0 and 1e0 are version 1; 1.5 is not.
+                        // R54, R86 (§8.2): any integral JSON number is an integer, so 1.0 and 1e0 are version 1 and
+                        // 2.0 is version 2; 1.5 is not an integer.
                         var raw = reader.ValueSpan;
                         if (reader.TryGetInt64(out long v)) version = v;
                         else if (!reader.TryGetDouble(out double d) || !double.IsFinite(d))
                             versionHuge = raw.Length > 0 && raw[0] != (byte)'-'; // beyond double range
                         else if (d != Math.Floor(d)) problem ??= "\"version\" must be an integer.";
-                        else if (d > 1) versionHuge = true;
-                        else if (d < 1) problem ??= "\"version\" must be 1.";
-                        else version = 1;
+                        else if (d > MaxVersion) versionHuge = true;
+                        else if (d < 1) problem ??= "\"version\" must be 1 or 2.";
+                        else version = (long)d;
                     }
                     break;
 
@@ -123,10 +131,25 @@ internal static class StrictLoader
                     }
                     break;
 
+                // "cells" belongs to version 1 and "activeSheet"/"sheets" to version 2 (CR1.5). Each is recorded here
+                // and judged once the version is known (R86).
                 case "cells":
                     hasCells = true;
-                    if (reader.TokenType == JsonTokenType.StartArray) cellsReader = reader; // entries are checked later
-                    else problem ??= "\"cells\" must be an array.";
+                    cellsIsArray = reader.TokenType == JsonTokenType.StartArray;
+                    if (cellsIsArray) cellsReader = reader; // entries are checked later
+                    SkipValue(ref reader);
+                    break;
+
+                case "activeSheet":
+                    hasActiveSheet = true;
+                    if (reader.TokenType == JsonTokenType.String) activeSheet = ReadString(ref reader);
+                    else SkipValue(ref reader);
+                    break;
+
+                case "sheets":
+                    hasSheets = true;
+                    sheetsIsArray = reader.TokenType == JsonTokenType.StartArray;
+                    if (sheetsIsArray) sheetsReader = reader; // sheets are checked later
                     SkipValue(ref reader);
                     break;
 
@@ -138,26 +161,96 @@ internal static class StrictLoader
 
         if (reader.Read()) throw Fail("unexpected content after the root object.");
 
-        if (versionHuge || version > 1) throw Fail("unsupported version; this build reads version 1.");
+        if (versionHuge || version > MaxVersion) throw Fail("unsupported version; this build reads versions 1 and 2.");
         if (!hasFormat || !formatOk) throw Fail("\"format\" must be \"gridline\".");
         if (!hasVersion) throw Fail("\"version\" is missing.");
         if (problem is not null) throw Fail(problem);
-        if (version < 1) throw Fail("\"version\" must be 1.");
+        if (version < 1) throw Fail("\"version\" must be 1 or 2.");
 
-        // R54 (§8.2): a missing "names" or "cells" key counts as empty (names stays an empty list, cells is []).
-        var cells = hasCells ? ReadCells(ref cellsReader) : [];
+        if (version == 1)
+        {
+            // R86: the version 2 keys are not allowed in a version 1 file.
+            if (hasActiveSheet) throw Fail("a version 1 file cannot contain \"activeSheet\".");
+            if (hasSheets) throw Fail("a version 1 file cannot contain \"sheets\".");
+            if (hasCells && !cellsIsArray) throw Fail("\"cells\" must be an array.");
+            // R54 (§8.2): a missing "names" or "cells" key counts as empty (names stays an empty list, cells is []).
+            // CR1.5: the file migrates to one sheet Sheet1; its names must be unqualified and are qualified with Sheet1.
+            var cells = hasCells ? ReadCells(ref cellsReader, "") : [];
+            return Build([new LoadedSheet(Workbook.DefaultSheetName, cells)], Workbook.DefaultSheetName, names,
+                LoadedNameForm.Unqualified);
+        }
+
+        // Version 2 (CR1.5, R86): "format", "version", "activeSheet" and "sheets" are required; a missing "names" is
+        // empty (R54). A top-level "cells" is not a version 2 key, so it is ignored like any unknown key.
+        if (!hasActiveSheet) throw Fail("\"activeSheet\" is missing.");
+        if (activeSheet is null) throw Fail("\"activeSheet\" must be a string.");
+        if (!hasSheets) throw Fail("\"sheets\" is missing.");
+        if (!sheetsIsArray) throw Fail("\"sheets\" must be an array.");
+        var sheets = ReadSheets(ref sheetsReader);
+        if (sheets.Count == 0) throw Fail("\"sheets\" must contain at least one sheet.");
+        return Build(sheets, activeSheet, names, LoadedNameForm.Qualified);
+    }
+
+    /// <summary>The single Core call that builds the workbook; everything is validated before anything is built.</summary>
+    private static Workbook Build(IReadOnlyList<LoadedSheet> sheets, string activeSheet,
+        List<KeyValuePair<string, string>> names, LoadedNameForm nameForm)
+    {
         try
         {
-            return Workbook.FromCells(cells, names);
+            return Workbook.FromSheets(sheets, activeSheet, names, functions: null, nameForm);
         }
         catch (ArgumentException ex)
         {
-            // FromCells rejected an entry (duplicate, invalid input, invalid or duplicate name; R5, §9.6). Only this call is mapped.
+            // FromSheets rejected an entry: a duplicate address, invalid input, an invalid or duplicate name, a refersTo
+            // in the wrong form or naming an unknown sheet, an invalid or duplicate sheet name, too many sheets, or an
+            // unknown active sheet (R5, §9.6, CR1.5, R86). Only this call is mapped.
             throw new GridlineFormatException("Invalid .gridline file: " + ex.Message, ex);
         }
     }
 
-    private static List<KeyValuePair<string, string>> ReadCells(ref Utf8JsonReader reader)
+    /// <summary>The "sheets" array of a version 2 file (CR1.5, R86), the reader at its StartArray. Each entry is an
+    /// object with a string "name" (required) and a "cells" array (a missing "cells" is empty, as R54 rules for version
+    /// 1); other keys are ignored. Sheet names, duplicates, the sheet count and the active sheet are checked by Core.</summary>
+    private static List<LoadedSheet> ReadSheets(ref Utf8JsonReader reader)
+    {
+        var sheets = new List<LoadedSheet>();
+        int index = 0;
+        while (true)
+        {
+            if (!reader.Read()) throw Fail("unexpected end of file.");
+            if (reader.TokenType == JsonTokenType.EndArray) return sheets;
+            if (reader.TokenType != JsonTokenType.StartObject) throw Fail($"sheet {index} must be an object.");
+
+            string? name = null;
+            List<KeyValuePair<string, string>>? cells = null;
+            while (true) // duplicate keys were already rejected by the first pass (SkipValue)
+            {
+                if (!reader.Read()) throw Fail("unexpected end of file.");
+                if (reader.TokenType == JsonTokenType.EndObject) break;
+                string key = ReadString(ref reader);
+                if (!reader.Read()) throw Fail("unexpected end of file.");
+                switch (key)
+                {
+                    case "name":
+                        if (reader.TokenType != JsonTokenType.String) throw Fail($"sheet {index}: \"name\" must be a string.");
+                        name = ReadString(ref reader);
+                        break;
+                    case "cells":
+                        if (reader.TokenType != JsonTokenType.StartArray) throw Fail($"sheet {index}: \"cells\" must be an array.");
+                        cells = ReadCells(ref reader, $"sheet {index}: ");
+                        break;
+                    default:
+                        SkipValue(ref reader);
+                        break;
+                }
+            }
+            if (name is null) throw Fail($"sheet {index}: \"name\" is missing.");
+            sheets.Add(new LoadedSheet(name, cells ?? []));
+            index++;
+        }
+    }
+
+    private static List<KeyValuePair<string, string>> ReadCells(ref Utf8JsonReader reader, string context)
     {
         var cells = new List<KeyValuePair<string, string>>();
         int index = 0;
@@ -165,23 +258,27 @@ internal static class StrictLoader
         {
             if (!reader.Read()) throw Fail("unexpected end of file.");
             if (reader.TokenType == JsonTokenType.EndArray) return cells;
-            if (reader.TokenType != JsonTokenType.StartArray) throw Fail($"cell entry {index} must be an array [address, input].");
+            if (reader.TokenType != JsonTokenType.StartArray) throw Fail($"{context}cell entry {index} must be an array [address, input].");
 
             if (!reader.Read() || reader.TokenType != JsonTokenType.String)
-                throw Fail($"cell entry {index} must be a two-element array of strings.");
+                throw Fail($"{context}cell entry {index} must be a two-element array of strings.");
             string address = ReadString(ref reader);
             if (!reader.Read() || reader.TokenType != JsonTokenType.String)
-                throw Fail($"cell entry {index} must be a two-element array of strings.");
+                throw Fail($"{context}cell entry {index} must be a two-element array of strings.");
             string input = ReadString(ref reader);
             if (!reader.Read() || reader.TokenType != JsonTokenType.EndArray)
-                throw Fail($"cell entry {index} must have exactly two elements.");
+                throw Fail($"{context}cell entry {index} must have exactly two elements.");
 
-            // §8.2/§4.2: any valid address is accepted (case-insensitive, optional `$`); FromCells stores it canonically
-            // and rejects duplicates compared canonically (so "A1" and "a1" are duplicates).
+            // §8.2/§4.2: any valid address is accepted (case-insensitive, optional `$`); FromSheets stores it
+            // canonically and rejects duplicates compared canonically (so "A1" and "a1" are duplicates). Addresses are
+            // never sheet-qualified: the cells of a version 2 sheet lie on that sheet (R86).
             if (!CellAddress.TryParse(address, out _))
-                throw Fail($"cell entry {index}: \"{address}\" is not a valid cell address.");
-            // R54 (§8.2): an empty input is a blank cell; FromCells skips it but still counts it for duplicates.
-            if (input.Length > Workbook.MaxInputLength) throw Fail($"cell {address} input exceeds {Workbook.MaxInputLength} characters.");
+                throw Fail(address.Contains('!')
+                    ? $"{context}cell entry {index}: \"{address}\" is sheet-qualified; cell addresses in a file are unqualified."
+                    : $"{context}cell entry {index}: \"{address}\" is not a valid cell address.");
+            // R54 (§8.2): an empty input is a blank cell; FromSheets skips it but still counts it for duplicates.
+            if (input.Length > Workbook.MaxInputLength)
+                throw Fail($"{context}cell {address} input exceeds {Workbook.MaxInputLength} characters.");
 
             cells.Add(new KeyValuePair<string, string>(address, input));
             index++;

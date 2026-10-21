@@ -3,9 +3,9 @@ using Gridline.Core;
 namespace Gridline.IO;
 
 /// <summary>
-/// Byte-exact §8.1 writer (R26, R27): UTF-8 without BOM, LF, trailing LF, two-space indent. Strings are escaped as
-/// \" \\ \b \f \n \r \t, other U+0000-U+001F as lowercase \u00xx, lone surrogates as lowercase \udxxx; everything
-/// else is written literally. Encodes straight into one growing byte buffer, with no per-cell strings.
+/// Byte-exact §8.1 writer of format version 2 (CR1.5, R26, R27): UTF-8 without BOM, LF, trailing LF, two-space
+/// indent. Strings are escaped as \" \\ \b \f \n \r \t, other U+0000-U+001F as lowercase \u00xx, lone surrogates as
+/// lowercase \udxxx; everything else is written literally. Encodes straight into one growing byte buffer, with no per-cell strings.
 /// </summary>
 internal sealed class CanonicalWriter
 {
@@ -16,47 +16,61 @@ internal sealed class CanonicalWriter
 
     private CanonicalWriter(int capacity) => _buf = new byte[Math.Max(capacity, 256)];
 
-    public static byte[] Write(Workbook workbook, IReadOnlyList<KeyValuePair<string, string>> names)
+    /// <summary>
+    /// The version 2 canonical bytes (CR1.5, §8.1): keys format, version, activeSheet, names, sheets; names sorted
+    /// OrdinalIgnoreCase with their qualified refersTo (R77) or #REF! (R59); sheets in workbook order, each with keys
+    /// name, cells and its cells row-major with unqualified addresses; empty forms <c>"names": {}</c> and
+    /// <c>"cells": []</c>; two-space indent per nesting level.
+    /// </summary>
+    public static byte[] Write(Workbook workbook)
     {
         ArgumentNullException.ThrowIfNull(workbook);
-        ArgumentNullException.ThrowIfNull(names);
-        var addresses = workbook.GetUsedAddresses();
-        var w = new CanonicalWriter(64 + addresses.Count * 24);
-        w.Raw("{\n  \"format\": \"gridline\",\n  \"version\": 1,\n");
+        var names = workbook.GetNames(); // already sorted OrdinalIgnoreCase (§9.6)
+        var sheetNames = workbook.SheetNames;
+        var w = new CanonicalWriter(128 + names.Count * 48 + sheetNames.Count * 64 + workbook.UsedCellCount * 24);
+        w.Raw("{\n  \"format\": \"gridline\",\n  \"version\": 2,\n  \"activeSheet\": ");
+        w.Str(workbook.ActiveSheet);
+        w.Raw(",\n");
 
         if (names.Count == 0) w.Raw("  \"names\": {},\n");
         else
         {
-            var sorted = names.ToArray();
-            Array.Sort(sorted, static (a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key));
             w.Raw("  \"names\": {\n");
-            for (int i = 0; i < sorted.Length; i++)
+            for (int i = 0; i < names.Count; i++)
             {
                 w.Raw("    ");
-                w.Str(sorted[i].Key);
+                w.Str(names[i].Key);
                 w.Raw(": ");
-                w.Str(sorted[i].Value);
-                w.Raw(i + 1 < sorted.Length ? ",\n" : "\n");
+                w.Str(names[i].Value);
+                w.Raw(i + 1 < names.Count ? ",\n" : "\n");
             }
             w.Raw("  },\n");
         }
 
-        if (addresses.Count == 0) w.Raw("  \"cells\": []\n");
-        else
+        w.Raw("  \"sheets\": [\n"); // a workbook always has at least one sheet (CR1.1), so there is no empty form
+        for (int s = 0; s < sheetNames.Count; s++)
         {
-            w.Raw("  \"cells\": [\n");
-            for (int i = 0; i < addresses.Count; i++)
+            w.Raw("    {\n      \"name\": ");
+            w.Str(sheetNames[s]);
+            w.Raw(",\n");
+            var cells = workbook.GetSheetCells(s);
+            if (cells.Length == 0) w.Raw("      \"cells\": []\n");
+            else
             {
-                string a = addresses[i];
-                w.Raw("    [");
-                w.Str(a);
-                w.Raw(", ");
-                w.Str(workbook.GetInput(a));
-                w.Raw(i + 1 < addresses.Count ? "],\n" : "]\n");
+                w.Raw("      \"cells\": [\n");
+                for (int i = 0; i < cells.Length; i++)
+                {
+                    w.Raw("        [");
+                    w.Str(cells[i].Key);
+                    w.Raw(", ");
+                    w.Str(cells[i].Value);
+                    w.Raw(i + 1 < cells.Length ? "],\n" : "]\n");
+                }
+                w.Raw("      ]\n");
             }
-            w.Raw("  ]\n");
+            w.Raw(s + 1 < sheetNames.Count ? "    },\n" : "    }\n");
         }
-        w.Raw("}\n");
+        w.Raw("  ]\n}\n");
         return w._buf.AsSpan(0, w._len).ToArray();
     }
 

@@ -3,7 +3,8 @@ using Gridline.Core;
 
 namespace Gridline.IO.Tests;
 
-/// <summary>Names in the .gridline format (§8.1, §8.2, §9.6, R58, R59; CR1.4, R77 qualified in the workbook).</summary>
+/// <summary>Names in the .gridline format (§8.1, §8.2, §9.6, R58, R59; CR1.4, R77 qualified in the workbook; CR1.5
+/// version 1 files migrate their unqualified names to Sheet1 and saving writes version 2).</summary>
 public class NamesFileTests
 {
     private static Workbook Load(string json) => GridlineSerializer.Deserialize(Encoding.UTF8.GetBytes(json));
@@ -13,7 +14,8 @@ public class NamesFileTests
 
     private static void Bad(string json) => Assert.Throws<GridlineFormatException>(() => Load(json));
 
-    // The literal §8.1 example file (architecture.md): names Rate and Total, three cells.
+    // The literal §8.1 example file (architecture.md): names Rate and Total, three cells. CR1.5: it migrates to Sheet1
+    // with qualified names and unchanged formulas, and saves as version 2, which then re-saves byte-for-byte.
     [Fact]
     public void Spec81Example_Literal_LoadsEvaluatesAndResavesByteForByte()
     {
@@ -26,7 +28,15 @@ public class NamesFileTests
         Assert.Equal(25.0, wb.GetValue("A1").Number);
         Assert.Equal("hello \"world\"", wb.GetInput("A2"));
         Assert.Equal(new[] { "Rate", "Total" }, wb.GetNames().Select(n => n.Key).ToArray());
-        Assert.Equal(bytes, GridlineSerializer.Serialize(wb));
+        Assert.Equal(new[] { "Sheet1!$B$1", "Sheet1!$A$1:$A$10" }, wb.GetNames().Select(n => n.Value).ToArray());
+        Assert.Equal("=SUM(B1:B3)*Rate", wb.GetInput("A1"));
+        Assert.Equal(new[] { "Sheet1" }, wb.SheetNames);
+        var version2 = WriterTests.OneSheet(
+            ["\"Rate\": \"Sheet1!$B$1\"", "\"Total\": \"Sheet1!$A$1:$A$10\""],
+            "[\"A1\", \"=SUM(B1:B3)*Rate\"]", "[\"B1\", \"5\"]", "[\"A2\", \"hello \\\"world\\\"\"]");
+        var saved = GridlineSerializer.Serialize(wb);
+        Assert.Equal(version2, WriterTests.Text(saved));
+        Assert.Equal(saved, GridlineSerializer.Serialize(GridlineSerializer.Deserialize(saved)));
     }
 
     [Fact]
@@ -39,8 +49,15 @@ public class NamesFileTests
         var bytes = Encoding.UTF8.GetBytes(canonical);
         var wb = GridlineSerializer.Deserialize(bytes);
         Assert.Equal(12.0, wb.GetValue("C1").Number);
-        Assert.Equal(bytes, GridlineSerializer.Serialize(wb));
         Assert.Equal(2, wb.GetNames().Count);
+        // CR1.5: saved as version 2 with qualified names; that file re-saves byte-exact.
+        var version2 = Encoding.UTF8.GetBytes(WriterTests.OneSheet(
+            ["\"Rate\": \"Sheet1!$B$1\"", "\"Total\": \"Sheet1!$A$1:$A$3\""],
+            "[\"A1\", \"1\"]", "[\"B1\", \"2\"]", "[\"C1\", \"=SUM(A1:A3)*Rate\"]", "[\"A2\", \"2\"]", "[\"A3\", \"3\"]"));
+        Assert.Equal(version2, GridlineSerializer.Serialize(wb));
+        var back = GridlineSerializer.Deserialize(version2);
+        Assert.Equal(12.0, back.GetValue("C1").Number);
+        Assert.Equal(version2, GridlineSerializer.Serialize(back));
     }
 
     [Fact]
@@ -72,7 +89,12 @@ public class NamesFileTests
         var wb = GridlineSerializer.Deserialize(bytes);
         Assert.Equal("#REF!", wb.GetValue("A1").Error);
         Assert.Equal(new KeyValuePair<string, string>("Gone", "#REF!"), Assert.Single(wb.GetNames()));
-        Assert.Equal(bytes, GridlineSerializer.Serialize(wb));
+        // CR1.5: saved as version 2, where #REF! is written as is (R59, R86) and re-saves byte-exact.
+        var version2 = Encoding.UTF8.GetBytes(WriterTests.OneSheet(["\"Gone\": \"#REF!\""], "[\"A1\", \"=Gone\"]"));
+        Assert.Equal(version2, GridlineSerializer.Serialize(wb));
+        var back = GridlineSerializer.Deserialize(version2);
+        Assert.Equal("#REF!", back.GetValue("A1").Error);
+        Assert.Equal(version2, GridlineSerializer.Serialize(back));
     }
 
     [Fact]
@@ -81,14 +103,14 @@ public class NamesFileTests
         var wb = Load(Doc("{\"a\":\"$b$1\",\"B\":\"$C$10:$A$1\"}"));
         Assert.Equal(new[] { "Sheet1!$B$1", "Sheet1!$A$1:$C$10" }, wb.GetNames().Select(n => n.Value).ToArray());
         var text = Encoding.UTF8.GetString(GridlineSerializer.Serialize(wb));
-        Assert.Contains("\"a\": \"$B$1\"", text);
-        Assert.Contains("\"B\": \"$A$1:$C$10\"", text);
+        Assert.Contains("    \"a\": \"Sheet1!$B$1\",\n", text);
+        Assert.Contains("    \"B\": \"Sheet1!$A$1:$C$10\"\n", text);
     }
 
-    // Interim bridge until the version 2 writer (CR1.5, D-53): the workbook holds qualified names (R77); a one-sheet
-    // version 1 file stores them unqualified and the loader qualifies them again with the first sheet.
+    // CR1.5 (replaces the interim version 1 bridge of D-53): the workbook holds qualified names (R77) and a version 2
+    // file stores them qualified, as they are.
     [Fact]
-    public void QualifiedName_SavesUnqualifiedInVersion1_AndReloadsQualified()
+    public void QualifiedName_SavesQualifiedInVersion2_AndReloads()
     {
         var wb = new Workbook();
         wb.SetCell("B1", "4");
@@ -98,7 +120,8 @@ public class NamesFileTests
         Assert.Equal("Sheet1!$B$1", wb.GetNames()[0].Value);
         var bytes = GridlineSerializer.Serialize(wb);
         var text = Encoding.UTF8.GetString(bytes);
-        Assert.Contains("    \"Rate\": \"$B$1\",\n    \"Total\": \"$A$1:$A$3\"\n", text);
+        Assert.Contains("    \"Rate\": \"Sheet1!$B$1\",\n    \"Total\": \"Sheet1!$A$1:$A$3\"\n", text);
+        Assert.Contains("  \"version\": 2,\n", text);
         var back = GridlineSerializer.Deserialize(bytes);
         Assert.Equal(wb.GetNames(), back.GetNames());
         Assert.Equal(8.0, back.GetValue("A1").Number);
@@ -156,7 +179,7 @@ public class NamesFileTests
     public void UnsupportedVersion_ReportsBeforeNameProblems()
     {
         var ex = Assert.Throws<GridlineFormatException>(() =>
-            Load("{\"format\":\"gridline\",\"version\":2,\"names\":{\"1x\":5},\"cells\":[]}"));
+            Load("{\"format\":\"gridline\",\"version\":3,\"names\":{\"1x\":5},\"cells\":[]}"));
         Assert.Contains("unsupported version", ex.Message);
     }
 

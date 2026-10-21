@@ -152,8 +152,9 @@ public sealed partial class Workbook
     internal static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells, IFunctionResolver functions) =>
         FromCells(cells, [], functions);
 
-    /// <summary>Loader entry (ruling P1): as the public FromCells, plus the names of a file (§8.2). Everything is
-    /// validated before anything is built (atomic); see <see cref="ValidateLoadedNames"/>.</summary>
+    /// <summary>Internal entry (ruling P1; CSV import and tests): as the public FromCells, plus names in either form
+    /// (<see cref="LoadedNameForm.Any"/>). Everything is validated before anything is built (atomic); see
+    /// <see cref="ValidateLoadedNames"/>. The .gridline loader calls <see cref="FromSheets"/> directly (D-56).</summary>
     internal static Workbook FromCells(IEnumerable<KeyValuePair<string, string>> cells,
         IEnumerable<KeyValuePair<string, string>> names, IFunctionResolver? functions = null)
     {
@@ -162,17 +163,20 @@ public sealed partial class Workbook
     }
 
     /// <summary>
-    /// Multi-sheet loader entry (CR1.5, D-52; for the v2 file loader): builds a workbook with <paramref name="sheets"/>
+    /// Multi-sheet loader entry (CR1.5, D-52, D-56; the .gridline loader): builds a workbook with <paramref name="sheets"/>
     /// in order, each holding its (unqualified address, input) pairs, and <paramref name="activeSheet"/> active (matched
     /// case-insensitively, R86). Everything is validated before anything is built; then one full recalculation runs. No
     /// event; clean, with an empty undo history. Names are stored qualified (CR1.4, R77): a qualified refersTo must name
     /// one of <paramref name="sheets"/>, and an unqualified one (a version 1 file) is qualified with the first sheet.
+    /// <paramref name="nameForm"/> restricts the written form of each refersTo other than <c>#REF!</c>: a version 1
+    /// file holds only unqualified targets, a version 2 file only qualified ones (R86, D-56).
     /// </summary>
     /// <exception cref="ArgumentException">No sheets or more than 255, an invalid or duplicate (case-insensitive) sheet
     /// name, an unknown active sheet, an invalid or qualified cell address, a duplicate address within a sheet, an
-    /// invalid input, or an invalid name. Nothing is built.</exception>
+    /// invalid input, or an invalid name or a refersTo not in <paramref name="nameForm"/>. Nothing is built.</exception>
     internal static Workbook FromSheets(IReadOnlyList<LoadedSheet> sheets, string activeSheet,
-        IEnumerable<KeyValuePair<string, string>> names, IFunctionResolver? functions = null)
+        IEnumerable<KeyValuePair<string, string>> names, IFunctionResolver? functions = null,
+        LoadedNameForm nameForm = LoadedNameForm.Any)
     {
         ArgumentNullException.ThrowIfNull(sheets);
         ArgumentNullException.ThrowIfNull(activeSheet);
@@ -195,7 +199,7 @@ public sealed partial class Workbook
         // The sheets exist before the names are validated, so a qualified refersTo can be checked against them (R77);
         // the workbook is not returned on failure, so nothing escapes (atomic).
         var wb = new Workbook(functions, sheetNames);
-        var loadedNames = wb.ValidateLoadedNames(names);
+        var loadedNames = wb.ValidateLoadedNames(names, nameForm);
 
         var validated = new List<(int Key, string Input)>[sheets.Count];
         for (int s = 0; s < sheets.Count; s++)
@@ -297,6 +301,26 @@ public sealed partial class Workbook
         foreach (var sheet in _sheets)
             foreach (int key in sheet.Cells.Keys) keys[n++] = SheetCellKey.Pack(sheet.Id, key);
         return Array.AsReadOnly(ToSortedAddresses(keys));
+    }
+
+    /// <summary>The (unqualified canonical address, input) pairs of the non-empty cells of the sheet at
+    /// <paramref name="index"/> in <see cref="SheetNames"/>, row-major (row, then column). Internal: the per-sheet cell
+    /// enumeration of the version 2 writer (CR1.5, D-56); O(n log n) in the sheet's used cells.</summary>
+    internal KeyValuePair<string, string>[] GetSheetCells(int index)
+    {
+        var cells = _sheets[index].Cells;
+        // Project each key to row << 10 | column (column < 1024, row < 2^17), so a plain int sort is row-major.
+        var order = new int[cells.Count];
+        int n = 0;
+        foreach (int key in cells.Keys) order[n++] = (CellKey.Row(key) << 10) | CellKey.Column(key);
+        Array.Sort(order);
+        var result = new KeyValuePair<string, string>[order.Length];
+        for (int i = 0; i < order.Length; i++)
+        {
+            int key = CellKey.Pack(order[i] & 1023, order[i] >> 10);
+            result[i] = new(CellKey.Unpack(key).ToString(), cells[key].Input);
+        }
+        return result;
     }
 
     /// <summary>An unqualified cell address (the single-sheet loader's cells and CopyPaste's internal use).</summary>
@@ -457,3 +481,13 @@ public sealed partial class Workbook
 
 /// <summary>One sheet of a loaded file (CR1.5, D-52): its name and its (unqualified address, input) pairs.</summary>
 internal readonly record struct LoadedSheet(string Name, IEnumerable<KeyValuePair<string, string>> Cells);
+
+/// <summary>The form a loaded file must write each refersTo in, other than the exact <c>#REF!</c> (R59): either form
+/// (<see cref="Any"/>, the internal loader entries), unqualified only (a version 1 file, migrated to the first sheet), or
+/// sheet-qualified only (a version 2 file, R86). CR1.5, D-56.</summary>
+internal enum LoadedNameForm
+{
+    Any,
+    Unqualified,
+    Qualified,
+}

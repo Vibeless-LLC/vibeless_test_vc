@@ -127,9 +127,11 @@ public sealed partial class Workbook
     /// <summary>Validates the names of a loaded file with the DefineName rules (§9.6): syntax, refersTo (normalised to
     /// the canonical qualified form, R58, R77, so <c>$b$1</c> loads as <c>Sheet1!$B$1</c>), the exact string
     /// <c>#REF!</c> (R59), and no case-insensitive duplicates. An unqualified refersTo (a version 1 file) is qualified
-    /// with the first sheet (CR1.5 migration); a qualified one must name a sheet of this workbook. Changes nothing.</summary>
-    /// <exception cref="ArgumentException">Any name or refersTo is invalid, names an unknown sheet, or two names collide.</exception>
-    private List<NameDefinition> ValidateLoadedNames(IEnumerable<KeyValuePair<string, string>> names)
+    /// with the first sheet (CR1.5 migration); a qualified one must name a sheet of this workbook. <paramref name="form"/>
+    /// restricts the written form of every refersTo other than <c>#REF!</c> (R86, D-56). Changes nothing.</summary>
+    /// <exception cref="ArgumentException">Any name or refersTo is null or invalid, names an unknown sheet, is not in
+    /// <paramref name="form"/>, or two names collide.</exception>
+    private List<NameDefinition> ValidateLoadedNames(IEnumerable<KeyValuePair<string, string>> names, LoadedNameForm form)
     {
         var result = new List<NameDefinition>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -138,7 +140,17 @@ public sealed partial class Workbook
             if (name is null || !NameSyntax.IsValidName(name))
                 throw new ArgumentException($"Invalid name '{Clip(name ?? "")}'.", nameof(names));
             if (refersTo is null)
-                throw new ArgumentException($"Invalid refersTo '' for name '{Clip(name)}'.", nameof(names));
+                throw new ArgumentException($"The refersTo of name '{Clip(name)}' is null.", nameof(names));
+            if (form != LoadedNameForm.Any
+                && !string.Equals(refersTo, NameSyntax.DeletedTarget, StringComparison.Ordinal)
+                && SheetName.TrySplitQualified(refersTo, out string? sheetName, out _))
+            {
+                // A malformed prefix (TrySplitQualified false) is reported by Qualify below.
+                if (form == LoadedNameForm.Unqualified && sheetName is not null)
+                    throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}' for name '{Clip(name)}': a version 1 file holds unqualified targets such as $B$1 (CR1.5).", nameof(names));
+                if (form == LoadedNameForm.Qualified && sheetName is null)
+                    throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}' for name '{Clip(name)}': a version 2 file holds sheet-qualified targets such as Sheet1!$B$1 (R86).", nameof(names));
+            }
             var definition = Qualify(name, refersTo, _sheets[0], allowDeleted: true, nameof(names));
             if (!seen.Add(name))
                 throw new ArgumentException($"Duplicate name '{Clip(name)}'.", nameof(names));

@@ -16,14 +16,21 @@ public class LoaderTests
     [Fact]
     public void LoadThenSave_CanonicalFile_IsIdentical()
     {
-        var canonical = WriterTests.Lines(
-            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": [",
-            "    [\"A1\", \"10\"],", "    [\"B1\", \"=A1*2\"],", "    [\"A2\", \"tab\\there \\\"q\\\" \\u0001 é \U0001F600 / \\\\\"]", "  ]", "}");
-        var bytes = Encoding.UTF8.GetBytes(canonical);
+        // CR1.5: the canonical file is version 2; a version 1 file with the same cells loads to the same workbook and
+        // saves as exactly this file.
+        string[] cellLines = ["[\"A1\", \"10\"]", "[\"B1\", \"=A1*2\"]", "[\"A2\", \"tab\\there \\\"q\\\" \\u0001 é \U0001F600 / \\\\\"]"];
+        var bytes = Encoding.UTF8.GetBytes(WriterTests.OneSheet([], cellLines));
         var wb = GridlineSerializer.Deserialize(bytes);
         Assert.Equal(bytes, GridlineSerializer.Serialize(wb));
         Assert.Equal("tab\there \"q\" \u0001 é \U0001F600 / \\", wb.GetInput("A2"));
         Assert.Equal(20.0, wb.GetValue("B1").Number);
+
+        var version1 = WriterTests.Lines(
+            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": [",
+            "    " + cellLines[0] + ",", "    " + cellLines[1] + ",", "    " + cellLines[2], "  ]", "}");
+        var migrated = GridlineSerializer.Deserialize(Encoding.UTF8.GetBytes(version1));
+        Assert.Equal(bytes, GridlineSerializer.Serialize(migrated));
+        Assert.Equal(20.0, migrated.GetValue("B1").Number);
     }
 
     [Fact]
@@ -72,9 +79,10 @@ public class LoaderTests
     }
 
     [Fact]
-    public void VersionAbove1_MessageContainsUnsupportedVersion()
+    public void VersionAbove2_MessageContainsUnsupportedVersion()
     {
-        var ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "2")));
+        // CR1.5: versions 1 and 2 are read; 3 and above are unsupported.
+        var ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "3")));
         Assert.Contains("unsupported version", ex.Message);
         ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "99999999999999999999")));
         Assert.Contains("unsupported version", ex.Message);
@@ -107,7 +115,7 @@ public class LoaderTests
     [Fact] public void Fail_VersionString() => Bad(Doc(version: "\"1\""));
     [Fact] public void Fail_VersionFractional() => Bad(Doc(version: "1.5"));
     [Fact] public void Fail_VersionFractionalExponent() => Bad(Doc(version: "15e-1"));
-    [Fact] public void Fail_VersionIntegralAboveOne() => Bad(Doc(version: "2.0"));
+    [Fact] public void Fail_VersionIntegralAboveTwo() => Bad(Doc(version: "3.0"));
     [Fact] public void Fail_VersionHugeExponent() => Bad(Doc(version: "1e400"));
 
     // R54 (§8.2): any integral JSON number is the integer it denotes.
@@ -121,9 +129,9 @@ public class LoaderTests
         Assert.Equal("5", Load(Doc("[[\"A1\",\"5\"]]", version: version)).GetInput("A1"));
 
     [Fact]
-    public void VersionIntegralAboveOne_IsUnsupported()
+    public void VersionIntegralAboveTwo_IsUnsupported()
     {
-        var ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "2.0")));
+        var ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "3.0")));
         Assert.Contains("unsupported version", ex.Message);
         ex = Assert.Throws<GridlineFormatException>(() => Load(Doc(version: "1e400")));
         Assert.Contains("unsupported version", ex.Message);
