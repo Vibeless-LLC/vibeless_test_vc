@@ -62,7 +62,7 @@ public static class CsvCommands
                     delimiter = ParseDelimiter(args[++i]);
                     break;
                 case "--sheet":
-                    if (i + 1 >= args.Length) throw Usage("--sheet requires a sheet name");
+                    if (i + 1 >= args.Length || args[i + 1] is "--sheet" or "--delimiter") throw Usage("--sheet requires a sheet name");
                     if (sheet is not null) throw Usage("--sheet given more than once");
                     sheet = args[++i];
                     if (!SheetName.IsValid(sheet)) throw Usage($"invalid sheet name '{sheet}'");

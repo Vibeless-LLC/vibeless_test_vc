@@ -293,7 +293,7 @@ internal sealed class ScriptInterpreter(Workbook initial, CliContext ctx)
                 throw new CliException(ExitCodes.Usage, $"sheet name '{token}' must be quoted");
             return token;
         }
-        if (!SheetName.TryReadQuoted(token,out string name, out int end) || end != token.Length)
+        if (!SheetName.TryReadQuoted(token, out string name, out int end) || end != token.Length)
             throw new CliException(ExitCodes.Usage, $"invalid quoted sheet name {token}");
         return name;
     }

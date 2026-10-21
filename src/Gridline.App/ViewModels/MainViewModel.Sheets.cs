@@ -107,17 +107,22 @@ public sealed partial class MainViewModel
         string oldName = _workbook.ActiveSheet;
         string? newName = _dialogs.PromptSheetName(oldName);
         if (newName is null) return false;
+        // R47: RenameSheet raises CellsChanged synchronously under the new name, so the copied sheet follows first.
+        string? copiedBefore = _copiedSheet;
+        if (copiedBefore is not null && string.Equals(copiedBefore, oldName, StringComparison.OrdinalIgnoreCase))
+            _copiedSheet = newName;
         try
         {
             _workbook.RenameSheet(oldName, newName);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) // R78, R85: nothing changed
         {
+            _copiedSheet = copiedBefore;
             _dialogs.ShowError("Gridline", ex.Message);
             return false;
         }
-        if (_copiedSheet is not null && string.Equals(_copiedSheet, oldName, StringComparison.OrdinalIgnoreCase))
-            _copiedSheet = _workbook.ActiveSheet; // the copied range is still there, under the new name
+        if (_copiedSheet is not null && string.Equals(_copiedSheet, newName, StringComparison.OrdinalIgnoreCase))
+            _copiedSheet = _workbook.ActiveSheet; // still copied: the canonical new name
         AfterSheetCommand();
         return true;
     }

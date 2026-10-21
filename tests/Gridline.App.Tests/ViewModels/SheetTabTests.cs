@@ -541,6 +541,30 @@ public sealed class SheetTabTests
         Assert.Null(_vm.CopiedSheet);
     }
 
+    // R47: the rename's own CellsChanged (a self-qualified formula rewritten under the new name) touches the copied range.
+    [Fact]
+    public void RenamingTheCopiedSheet_WithASelfQualifiedFormulaInTheRange_ForgetsTheInternalCopy()
+    {
+        Wb.ApplyBatch([new("A1", "1"), new("A2", "=Sheet1!A1*2")]);
+        Select("A1", "A2");
+        Assert.True(_vm.Copy());
+        _vm.AddSheet();
+        _vm.ActiveSheetIndex = 0;
+
+        _dialogs.SheetNameAnswer = "Renamed";
+        Assert.True(_vm.RenameActiveSheet());
+
+        Assert.Equal("=Renamed!A1*2", Wb.GetInput("Renamed!A2"));
+        Assert.False(_vm.IsInternalPaste(_clipboard.Text));
+        Assert.Null(_vm.CopiedSheet);
+
+        _vm.ActiveSheetIndex = 1;
+        Go("B1");
+        Assert.True(_vm.Paste());
+        Assert.Equal("1", Wb.GetInput("Sheet2!B1"));
+        Assert.Equal("2", Wb.GetInput("Sheet2!B2")); // values only: the external path
+    }
+
     [Fact]
     public void Commands_AreUnavailable_UntilStartupHasCompleted()
     {

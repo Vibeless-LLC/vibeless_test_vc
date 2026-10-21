@@ -207,6 +207,23 @@ public sealed class SheetCommandTests : IDisposable
         Assert.Equal(Lines("Data!A1\tN:1", "Data!B2\tN:3", "A2\tT:x"), o2);
     }
 
+    // R87: an option where the --sheet value belongs is a missing value, not a sheet name.
+    [Theory]
+    [InlineData("import-csv", "--delimiter")]
+    [InlineData("import-csv", "--sheet")]
+    [InlineData("export-csv", "--delimiter")]
+    [InlineData("export-csv", "--sheet")]
+    public void Sheet_FollowedByAnOption_IsAMissingValue(string command, string option)
+    {
+        string csv = WriteText("o.csv", "1;2\n");
+        string outp = P("o.gridline");
+        var (code, _, e) = command == "import-csv"
+            ? Run(command, csv, outp, "--sheet", option, ";")
+            : Run(command, outp, csv, "--sheet", option, ";");
+        Assert.Equal(1, code);
+        Assert.Contains("--sheet requires a sheet name", e);
+    }
+
     [Fact]
     public void ImportCsv_Sheet_QuotedNameAndOptionsInEitherOrder()
     {

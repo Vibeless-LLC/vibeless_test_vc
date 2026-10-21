@@ -175,6 +175,7 @@ public partial class MainWindow : Window, IEditTextHistory
     private const string SheetTabDragFormat = "Gridline.SheetTabIndex";
     private Point? _tabDragStart;
     private int _tabDragIndex = -1;
+    private bool _tabDragging; // this window's own tab drag is in progress; a bare-int payload from another window is refused
 
     /// <summary>The index of the tab that contains <paramref name="element"/>, or -1.</summary>
     private int SheetTabIndexAt(object element) =>
@@ -219,18 +220,20 @@ public partial class MainWindow : Window, IEditTextHistory
         if (Math.Abs(moved.X) < SystemParameters.MinimumHorizontalDragDistance
             && Math.Abs(moved.Y) < SystemParameters.MinimumVerticalDragDistance) return;
         _tabDragStart = null;
-        DragDrop.DoDragDrop(SheetTabStrip, new DataObject(SheetTabDragFormat, _tabDragIndex), DragDropEffects.Move);
+        _tabDragging = true;
+        try { DragDrop.DoDragDrop(SheetTabStrip, new DataObject(SheetTabDragFormat, _tabDragIndex), DragDropEffects.Move); }
+        finally { _tabDragging = false; }
     }
 
     private void SheetTabs_DragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(SheetTabDragFormat) ? DragDropEffects.Move : DragDropEffects.None;
+        e.Effects = _tabDragging && e.Data.GetDataPresent(SheetTabDragFormat) ? DragDropEffects.Move : DragDropEffects.None;
         e.Handled = true;
     }
 
     private void SheetTabs_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(SheetTabDragFormat) is not int from) return;
+        if (!_tabDragging || e.Data.GetData(SheetTabDragFormat) is not int from) return;
         e.Handled = true;
         int to = SheetTabIndexAt(e.OriginalSource);
         if (to < 0) to = _viewModel.SheetTabs.Count - 1; // dropped past the last tab

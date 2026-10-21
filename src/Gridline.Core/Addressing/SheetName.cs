@@ -22,6 +22,9 @@ public static class SheetName
         return name.IndexOfAny(@":\/?*[]") < 0;
     }
 
+    /// <summary>The name for an error message, cut to 64 characters (as the Workbook does) so a huge bad name does not echo in full.</summary>
+    private static string Clip(string s) => s.Length <= 64 ? s : string.Concat(s.AsSpan(0, 64), "...");
+
     /// <summary>Checks <paramref name="name"/> against the CR1.1 rules.</summary>
     /// <param name="name">The sheet name.</param>
     /// <param name="paramName">The parameter name reported by the exception.</param>
@@ -32,7 +35,7 @@ public static class SheetName
         ArgumentNullException.ThrowIfNull(name, paramName);
         if (!IsValid(name))
             throw new ArgumentException(
-                $"Invalid sheet name '{name}': it must have 1 to {MaxLength} characters, none of : \\ / ? * [ ], and must not begin or end with '.",
+                $"Invalid sheet name '{Clip(name)}': it must have 1 to {MaxLength} characters, none of : \\ / ? * [ ], and must not begin or end with '.",
                 paramName);
     }
 

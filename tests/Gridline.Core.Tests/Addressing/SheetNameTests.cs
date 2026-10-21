@@ -46,6 +46,14 @@ public class SheetNameTests
     }
 
     [Fact]
+    public void Validate_ClipsALongRejectedNameInTheMessage()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => SheetName.Validate(new string('x', 500), "sheetName"));
+        Assert.Contains("'" + new string('x', 64) + "...'", ex.Message);
+        Assert.DoesNotContain(new string('x', 65), ex.Message);
+    }
+
+    [Fact]
     public void LengthLimit_Is31()
     {
         Assert.Equal(31, SheetName.MaxLength);

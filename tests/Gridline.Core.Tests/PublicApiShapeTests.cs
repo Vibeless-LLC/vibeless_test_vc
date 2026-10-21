@@ -202,6 +202,37 @@ public class PublicApiShapeTests
         }
     }
 
+    // CR1.3: the sheet members, exactly as written.
+    [Fact]
+    public void Workbook_HasTheCr13SheetMembers()
+    {
+        var t = typeof(Workbook);
+        var names = t.GetProperty("SheetNames", PublicInstance);
+        Assert.NotNull(names);
+        Assert.Equal(typeof(IReadOnlyList<string>), names.PropertyType);
+        Assert.NotNull(names.GetGetMethod());
+        Assert.Null(names.GetSetMethod());
+
+        var active = t.GetProperty("ActiveSheet", PublicInstance);
+        Assert.NotNull(active);
+        Assert.Equal(typeof(string), active.PropertyType);
+        Assert.NotNull(active.GetGetMethod());
+        Assert.NotNull(active.GetSetMethod());
+
+        AssertMethod(t, "AddSheet", isStatic: false, typeof(void), typeof(string), typeof(int?));
+        var add = t.GetMethod("AddSheet", PublicInstance, [typeof(string), typeof(int?)])!.GetParameters();
+        Assert.Equal(["name", "index"], add.Select(p => p.Name));
+        Assert.True(add[1].IsOptional);
+        Assert.Null(add[1].DefaultValue);
+
+        AssertMethod(t, "RenameSheet", isStatic: false, typeof(void), typeof(string), typeof(string));
+        Assert.Equal(["oldName", "newName"], t.GetMethod("RenameSheet", PublicInstance)!.GetParameters().Select(p => p.Name));
+        AssertMethod(t, "DeleteSheet", isStatic: false, typeof(void), typeof(string));
+        Assert.Equal(["name"], t.GetMethod("DeleteSheet", PublicInstance)!.GetParameters().Select(p => p.Name));
+        AssertMethod(t, "MoveSheet", isStatic: false, typeof(void), typeof(string), typeof(int));
+        Assert.Equal(["name", "newIndex"], t.GetMethod("MoveSheet", PublicInstance)!.GetParameters().Select(p => p.Name));
+    }
+
     // D-53: the multi-sheet plumbing of evaluation (CR1.2, CR1.4) stays internal, so the public surface is §9.1 + CR1.3.
     [Fact]
     public void SheetBindingOfEvaluation_IsNotPublic()
