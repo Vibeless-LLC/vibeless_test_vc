@@ -25,7 +25,8 @@ public interface IFunctionArguments
     /// <summary>
     /// True when the argument is written as a cell reference, range or defined name (§7.0, ruling P2), possibly inside
     /// parentheses (ruling R12), e.g. <c>A1</c>, <c>A1:B3</c>, <c>((A1))</c>, <c>Total</c>. A name counts only while it
-    /// is defined with a live target; an undefined name (#NAME?) or a deleted target (#REF!) is a direct argument.
+    /// is defined with a live target; an undefined name (#NAME?) or a deleted target (#REF!) is a direct argument. A
+    /// qualified reference (CR1.2) counts only while its sheet exists; one naming a missing sheet is #REF! (R82).
     /// Anything else (literals, operators, calls, omitted) is a direct argument.
     /// </summary>
     bool IsReference(int index);
@@ -35,7 +36,8 @@ public interface IFunctionArguments
     /// <paramref name="error"/> its own error: #NAME? for an undefined name, #REF! for a deleted target (§9.6, §5.1).
     /// Every function position that requires a reference MUST check this before answering #VALUE! for a non-reference,
     /// so such a name yields its own error, never the function's #VALUE!. Functions that never return an error (ISBLANK)
-    /// need not. False for every other argument.
+    /// need not. Also true, with #REF!, for a qualified reference to a sheet that does not exist (R82). False for every
+    /// other argument.
     /// </summary>
     bool TryGetReferenceError(int index, out CellValue error);
 

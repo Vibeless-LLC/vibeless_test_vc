@@ -220,7 +220,7 @@ public class WorkbookTests
     [InlineData("A1:B2")]
     [InlineData("1A")]
     [InlineData("A")]
-    [InlineData("Sheet1!A1")]
+    [InlineData("Sheet2!A1")] // CR1.3, R83: "Sheet1!A1" is now a valid qualified address; an unknown sheet still throws (D-52)
     public void InvalidAddress_ThrowsArgumentException_AndChangesNothing(string address)
     {
         var wb = Seeded();

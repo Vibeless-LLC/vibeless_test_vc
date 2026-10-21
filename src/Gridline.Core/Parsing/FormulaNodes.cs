@@ -44,17 +44,31 @@ public sealed class ErrorNode(string code) : FormulaNode
     public string Code { get; } = code ?? throw new ArgumentNullException(nameof(code));
 }
 
-/// <summary>Single cell reference, keeping the $ flags as written.</summary>
-public sealed class CellRefNode(CellReference reference) : FormulaNode
+/// <summary>Single cell reference, keeping the $ flags as written, optionally qualified with a sheet (CR1.2).</summary>
+public sealed class CellRefNode(CellReference reference, string? sheet = null) : FormulaNode
 {
     public CellReference Reference { get; } = reference;
+
+    /// <summary>The sheet name as written (quotes removed, <c>''</c> collapsed), or null for an unqualified reference.</summary>
+    public string? Sheet { get; } = ValidSheet(sheet);
+
+    /// <exception cref="ArgumentException">The name breaks the CR1.1 rules.</exception>
+    internal static string? ValidSheet(string? sheet)
+    {
+        if (sheet is not null) SheetName.Validate(sheet, nameof(sheet));
+        return sheet;
+    }
 }
 
-/// <summary>CellRef ':' CellRef with both ends kept as written (not normalised; CellRange normalises at evaluation).</summary>
-public sealed class RangeNode(CellReference start, CellReference end) : FormulaNode
+/// <summary>CellRef ':' CellRef with both ends kept as written (not normalised; CellRange normalises at evaluation).
+/// A qualified range has one sheet for both corners (CR1.2).</summary>
+public sealed class RangeNode(CellReference start, CellReference end, string? sheet = null) : FormulaNode
 {
     public CellReference Start { get; } = start;
     public CellReference End { get; } = end;
+
+    /// <summary>The sheet name as written (quotes removed, <c>''</c> collapsed), or null for an unqualified range.</summary>
+    public string? Sheet { get; } = CellRefNode.ValidSheet(sheet);
 }
 
 /// <summary>A bare name (case as written); resolved later.</summary>

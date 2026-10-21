@@ -16,7 +16,7 @@ public static class FormulaEvaluator
     /// unknown functions and undefined names give #NAME? (§5.1, §9.6); a Blank final result, e.g. <c>=A1</c> with A1
     /// empty, gives the number 0 (§6.6). A name that refers to a cell behaves like that cell reference, one that
     /// refers to a range like that range (#VALUE! in scalar context, §6.5), and one whose target was deleted gives
-    /// #REF! (§9.6). User-level problems are returned as error values; exceptions only come from null arguments or
+    /// #REF! (§9.6), as does a qualified reference to a sheet that does not exist (CR1.2, R82). User-level problems are returned as error values; exceptions only come from null arguments or
     /// from a provider or function that throws.
     /// </summary>
     /// <param name="functions">Function lookup; null means no functions (every call is #NAME?).</param>
@@ -61,6 +61,10 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
 
     internal ICellValueProvider Cells { get; } = cells;
 
+    /// <summary>The provider of a reference's sheet (CR1.2): the formula's own sheet when <paramref name="sheet"/> is null
+    /// (unqualified), else the named sheet; null when that sheet does not exist (the reference is #REF!, R82).</summary>
+    internal ICellValueProvider? SheetOf(string? sheet) => sheet is null ? Cells : Cells.ResolveSheet(sheet);
+
     internal CellAddress? CurrentCell { get; } = currentCell;
 
     /// <summary>Resolves a name (§9.6); false when no resolver is present or the name is undefined.</summary>
@@ -78,8 +82,8 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
         if (!TryResolveName(name, out var target)) return Errors.Name;
         return target.Kind switch
         {
-            NameTargetKind.Cell => Cells.GetValue(target.Range.TopLeft),
-            NameTargetKind.Range => Errors.Value,
+            NameTargetKind.Cell => SheetOf(target.Sheet)?.GetValue(target.Range.TopLeft) ?? Errors.Ref,
+            NameTargetKind.Range => SheetOf(target.Sheet) is null ? Errors.Ref : Errors.Value,
             _ => Errors.Ref,
         };
     }
@@ -124,8 +128,8 @@ internal sealed class EvaluationContext(ICellValueProvider cells, IFunctionResol
             case StringNode s: PushValue(CellValue.FromText(s.Value)); break;
             case BooleanNode b: PushValue(CellValue.FromBoolean(b.Value)); break;
             case ErrorNode e: PushValue(CellValue.FromError(e.Code)); break;
-            case CellRefNode r: PushValue(Cells.GetValue(r.Reference.Address)); break;
-            case RangeNode: PushValue(Errors.Value); break;          // §6.5, R11: even 1x1
+            case CellRefNode r: PushValue(SheetOf(r.Sheet)?.GetValue(r.Reference.Address) ?? Errors.Ref); break; // R82: missing sheet
+            case RangeNode r: PushValue(SheetOf(r.Sheet) is null ? Errors.Ref : Errors.Value); break; // §6.5, R11: even 1x1; R82
             case NameNode n: PushValue(NameValue(n.Name)); break;    // §9.6
             case OmittedArgNode: PushValue(Errors.Value); break;     // §5.3, R38 (normally caught by FunctionArguments)
             case ParenNode p: PushWork(p.Inner, false); break;

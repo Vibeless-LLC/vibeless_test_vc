@@ -11,7 +11,7 @@ namespace Gridline.IO.Tests;
 public class PerformanceCollection;
 
 /// <summary>
-/// The release performance gates (§12), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7.
+/// The release performance gates (§12, CR1.9), one test per budget: P-1, P-2, P-3, P-4, P-5, P-7, P-8.
 /// P-6 (GUI) is `Gridline.App.Tests.UI.P6PerformanceUiTests` (D-40). Budgets are defined for Release builds, so the gates are skipped in Debug.
 /// Method: one warm-up, then the median of 5 runs (P-3: median of 1,000 edits per run, median of 5 runs).
 /// Fixtures follow ruling R32 and are built in code. Budgets are never relaxed; optimise the hot path instead.
@@ -253,5 +253,57 @@ public class PerformanceGates(ITestOutputHelper output)
             Assert.True(mb <= 600, $"P-7 private memory {mb:F1} MB > 600 MB");
         }
         finally { DeleteQuietly(path); }
+    }
+
+    /// <summary>
+    /// P-8 fixture (CR1.9): 10 sheets × 10,000 formulas, each referencing other sheets. Sheet1 is the most referenced:
+    /// Sheet1!A{r} is <c>=Sheet2!B{r}*2</c>, and Sheet{k}!A{r} (k = 2..10) is <c>=Sheet1!A{r}+Sheet{k+1}!B{r}</c> (Sheet10
+    /// uses Sheet2), so 90,000 formulas name Sheet1, which has 10,000 dependents chained further.
+    /// </summary>
+    internal static Workbook TenSheetsReferencingSheet1()
+    {
+        var wb = new Workbook();
+        for (int k = 2; k <= 10; k++) wb.AddSheet("Sheet" + k);
+        var cells = new List<KeyValuePair<string, string>>(100_000);
+        for (int r = 1; r <= 10_000; r++)
+            cells.Add(new("Sheet1!A" + r, "=Sheet2!B" + r + "*2"));
+        for (int k = 2; k <= 10; k++)
+        {
+            int other = k == 10 ? 2 : k + 1;
+            for (int r = 1; r <= 10_000; r++)
+                cells.Add(new("Sheet" + k + "!A" + r, "=Sheet1!A" + r + "+Sheet" + other + "!B" + r));
+        }
+        wb.ApplyBatch(cells);
+        return wb;
+    }
+
+    /// <summary>P-8 (CR1.9): RenameSheet on the most-referenced sheet ≤ 500 ms. Each run renames Sheet1 to a name that
+    /// needs quoting or back, so every run rewrites the 90,000 referencing formulas.</summary>
+    [Fact(Skip = ReleaseOnly)]
+    public void P8_RenameMostReferencedSheet_10SheetsOf10kFormulas_Within500ms()
+    {
+        var wb = TenSheetsReferencingSheet1();
+        Assert.Equal(100_000, wb.GetUsedAddresses().Count);
+        string[] names = ["Hub Sheet", "Sheet1"];
+        wb.RenameSheet("Sheet1", names[0]); // warm-up
+        string current = names[0];
+        var times = new List<double>();
+        for (int i = 0; i < Runs; i++)
+        {
+            string next = names[(i + 1) % 2];
+            long t0 = Stopwatch.GetTimestamp();
+            wb.RenameSheet(current, next);
+            times.Add(Stopwatch.GetElapsedTime(t0).TotalMilliseconds);
+            current = next;
+        }
+        double median = Median(times);
+        output.WriteLine($"P-8 rename most-referenced sheet (90,000 rewrites) median {median:F1} ms; LastRecalc {wb.LastRecalc.EvaluatedFormulaCount} (runs: {string.Join(", ", times.Select(t => t.ToString("F1")))})");
+        Assert.Equal("Sheet1", current); // the warm-up and an odd number of runs
+        Assert.Equal("=Sheet1!A7+Sheet6!B7", wb.GetInput("Sheet5!A7"));
+        wb.RenameSheet("sheet1", "Hub Sheet");
+        Assert.Equal("='Hub Sheet'!A7+Sheet6!B7", wb.GetInput("Sheet5!A7"));
+        Assert.Equal("=Sheet2!B7*2", wb.GetInput("'Hub Sheet'!A7"));
+        Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount); // the rename changes no value, so nothing re-evaluates
+        Assert.True(median <= 500, $"P-8 median {median:F1} ms > 500 ms");
     }
 }

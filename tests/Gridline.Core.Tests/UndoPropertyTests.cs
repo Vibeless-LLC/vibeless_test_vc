@@ -255,18 +255,20 @@ public class UndoPropertyTests
             string after = refersTo;
             if (refersTo != "#REF!")
             {
-                var parts = refersTo.Split(':');
+                // Names are qualified with the only sheet (CR1.4, R77); the model adjusts the cell part.
+                Assert.StartsWith(Sheet1, refersTo, StringComparison.Ordinal);
+                var parts = refersTo[Sheet1.Length..].Split(':');
                 var tl = CellAddress.Parse(parts[0]);
                 var br = CellAddress.Parse(parts[^1]);
                 if (parts.Length == 1)
                 {
                     int to = map.MapPosition(map.PositionOf(tl));
-                    after = to < 0 ? "#REF!" : Abs(map.With(tl, to));
+                    after = to < 0 ? "#REF!" : Sheet1 + Abs(map.With(tl, to));
                 }
                 else
                 {
                     var span = map.MapSpan(map.PositionOf(tl), map.PositionOf(br));
-                    after = span is { } sp ? Abs(map.With(tl, sp.Lo)) + ":" + Abs(map.With(br, sp.Hi)) : "#REF!";
+                    after = span is { } sp ? Sheet1 + Abs(map.With(tl, sp.Lo)) + ":" + Abs(map.With(br, sp.Hi)) : "#REF!";
                 }
             }
             if (after != refersTo) adjusted = adjusted.With(name, after);
@@ -275,6 +277,9 @@ public class UndoPropertyTests
         nextNames = adjusted;
         return null;
     }
+
+    /// <summary>The qualifier of every stored refersTo in a one-sheet workbook (CR1.4, R77).</summary>
+    private const string Sheet1 = "Sheet1!";
 
     private static string Abs(CellAddress a) => new CellReference(a, ColumnAbsolute: true, RowAbsolute: true).ToString();
 
@@ -377,7 +382,7 @@ public class UndoPropertyTests
                 }
                 case DefineOp d:
                 {
-                    if (!NameSyntax.TryParseRefersTo(d.RefersTo, allowDeleted: false, out string canonical, out _))
+                    if (!NameSyntax.TryParseRefersTo(d.RefersTo, allowDeleted: false, out string cells, out _))
                     {
                         try
                         {
@@ -388,6 +393,7 @@ public class UndoPropertyTests
                         expectedEvents = 0;
                         break;
                     }
+                    string canonical = Sheet1 + cells; // qualified with the active sheet (CR1.4, R77)
                     bool same = m.CurrentNames.ByName.TryGetValue(d.Name, out var cur)
                         && cur.Key == d.Name && cur.Value == canonical; // R60 no-op
                     wb.DefineName(d.Name, d.RefersTo);

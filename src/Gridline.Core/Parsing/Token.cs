@@ -6,7 +6,9 @@ namespace Gridline.Core.Parsing;
 /// One formula token (§5.1). <see cref="Lexeme"/> is the exact source text (kept for §5.5 number printing).
 /// Payload by kind: Number -> <see cref="Number"/>; String -> <see cref="Text"/> (unescaped); Error -> <see cref="Text"/>
 /// (the canonical upper-case code, matched ignoring case, R56; Lexeme keeps the text as written); Boolean -> <see cref="Boolean"/>; CellRef -> <see cref="Reference"/>; Name -> <see cref="Text"/> (as written);
-/// Function -> <see cref="Text"/> (upper-cased). Payloads of other kinds are default.
+/// Function -> <see cref="Text"/> (upper-cased). Payloads of other kinds are default. A qualified CellRef (CR1.2, R82) also
+/// carries <see cref="Sheet"/>, the sheet name as written with quotes removed and <c>''</c> collapsed; its Lexeme is the
+/// whole <c>Sheet!A1</c> text. <see cref="Sheet"/> is null for every other token.
 /// </summary>
 public readonly record struct Token(
     TokenKind Kind,
@@ -15,4 +17,5 @@ public readonly record struct Token(
     double Number = 0,
     string Text = "",
     bool Boolean = false,
-    CellReference Reference = default);
+    CellReference Reference = default,
+    string? Sheet = null);

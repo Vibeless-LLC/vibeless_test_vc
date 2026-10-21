@@ -102,4 +102,32 @@ public class StructureEditScaleGates(ITestOutputHelper output)
         output.WriteLine($"InsertRows(1,1) + undo median {median:F1} ms");
         Assert.True(median <= BudgetMs, $"InsertRows(1,1) + undo median {median:F1} ms > {BudgetMs} ms");
     }
+
+    /// <summary>CR1.3, R84 (task 5, not a §12 budget): InsertRows on the most-referenced sheet of the P-8 workbook (10 sheets ×
+    /// 10,000 formulas, see <see cref="PerformanceGates.TenSheetsReferencingSheet1"/>). Sheet1's 10,000 cells move and the
+    /// 90,000 qualified references to it from the other nine sheets are rewritten; R63 then re-evaluates all 100,000
+    /// formulas. Undo included; same 2 s sanity budget as the single-sheet gates.</summary>
+    [Fact(Skip = ReleaseOnly)]
+    public void InsertRows1_OnMostReferencedSheetOfP8Workbook_WithUndo_Within2s()
+    {
+        WarmUp();
+        var wb = PerformanceGates.TenSheetsReferencingSheet1();
+        wb.InsertRows("Sheet1", 1, 1); // warm-up of the multi-sheet path
+        Assert.True(wb.Undo());
+        var times = new List<double>();
+        for (int i = 0; i < Runs; i++)
+        {
+            double edit = Time(() => wb.InsertRows("Sheet1", 1, 1));
+            Assert.Equal("=Sheet1!A8+Sheet6!B7", wb.GetInput("Sheet5!A7"));
+            Assert.Equal("=Sheet2!B7*2", wb.GetInput("Sheet1!A8"));
+            Assert.Equal(100_000, wb.LastRecalc.EvaluatedFormulaCount);
+            double undo = Time(() => Assert.True(wb.Undo()));
+            Assert.Equal("=Sheet1!A7+Sheet6!B7", wb.GetInput("Sheet5!A7"));
+            output.WriteLine($"InsertRows(\"Sheet1\",1,1) on the P-8 workbook (90,000 rewrites): {edit:F1} ms; undo {undo:F1} ms");
+            times.Add(edit + undo);
+        }
+        double median = Median(times);
+        output.WriteLine($"P-8 workbook InsertRows + undo median {median:F1} ms");
+        Assert.True(median <= BudgetMs, $"P-8 workbook InsertRows + undo median {median:F1} ms > {BudgetMs} ms");
+    }
 }

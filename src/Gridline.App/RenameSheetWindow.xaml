@@ -1,0 +1,21 @@
+<Window x:Class="Gridline.App.RenameSheetWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rename Sheet"
+        AutomationProperties.AutomationId="RenameSheetDialog"
+        SizeToContent="WidthAndHeight" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+    <!-- R88: the sheet tab's Rename dialog. The box is RenameSheetBox; Enter (OK) renames, Esc and the close button cancel.
+         The name is validated by the workbook (CR1.1); an invalid or duplicate name shows a message and changes nothing. -->
+    <StackPanel Margin="16" MinWidth="320">
+        <TextBlock Text="Sheet name:" Margin="0,0,0,4" />
+        <TextBox x:Name="RenameSheetBox" AutomationProperties.AutomationId="RenameSheetBox" AutomationProperties.Name="Sheet name"
+                 Margin="0,0,0,16" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK" MinWidth="80" Margin="0,0,8,0" IsDefault="True"
+                    AutomationProperties.AutomationId="RenameSheetOk" Click="Ok_Click" />
+            <Button Content="Cancel" MinWidth="80" IsCancel="True"
+                    AutomationProperties.AutomationId="RenameSheetCancel" />
+        </StackPanel>
+    </StackPanel>
+</Window>

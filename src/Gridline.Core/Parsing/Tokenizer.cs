@@ -7,21 +7,78 @@ namespace Gridline.Core.Parsing;
 /// <summary>
 /// Single-pass formula tokenizer (§5.1). Input is the formula text after the leading '='. An error literal is the run of
 /// '#' plus letters, digits, '/', '!' and '?', except that a known code followed by '/' ends there and the '/' is the
-/// divide operator (D-12, D-33), so the whitespace-free §5.5 form "#N/A/2" re-parses.
+/// divide operator (D-12, D-33), so the whitespace-free §5.5 form "#N/A/2" re-parses. A sheet prefix (CR1.2, R82),
+/// unquoted <c>Data!</c> or quoted <c>'My Sheet'!</c>, must be followed at once by a cell reference; together they form
+/// one qualified CellRef token (D-51).
 /// </summary>
 public static class Tokenizer
 {
-    public static TokenizeResult Tokenize(string formulaText)
+    public static TokenizeResult Tokenize(string formulaText) => Tokenize(formulaText, out _);
+
+    /// <summary>As <see cref="Tokenize(string)"/>, also reporting <paramref name="prefixScanSteps"/>: the characters examined
+    /// by the sheet-prefix lookahead over [A-Za-z0-9_.] runs. Linear tokenizing keeps it ≤ the text length; a regression
+    /// that rescans a run per token makes it quadratic. A deterministic test seam (no wall-clock timing).</summary>
+    internal static TokenizeResult Tokenize(string formulaText, out long prefixScanSteps)
     {
         ArgumentNullException.ThrowIfNull(formulaText);
+        prefixScanSteps = 0;
         var s = formulaText;
         var tokens = new List<Token>();
         int i = 0;
+        // End of the last [A-Za-z0-9_.] run found not to be a sheet prefix. A token starting inside it belongs to the same
+        // run, so each run is scanned once and tokenizing stays linear (e.g. "1.2.3.4..." is many Number tokens).
+        int bareRunEnd = 0;
         while (i < s.Length)
         {
             char c = s[i];
             if (c == ' ' || c == '\t') { i++; continue; }
             int start = i;
+
+            if (c == '\'')
+            {
+                // R82: a quoted sheet prefix, '' standing for '. It must hold a valid CR1.1 name and be followed by '!'.
+                var name = new StringBuilder();
+                int k = i + 1;
+                bool closed = false;
+                while (k < s.Length)
+                {
+                    if (s[k] == '\'')
+                    {
+                        if (k + 1 < s.Length && s[k + 1] == '\'') { name.Append('\''); k += 2; continue; }
+                        k++;
+                        closed = true;
+                        break;
+                    }
+                    name.Append(s[k++]);
+                }
+                if (!closed) return TokenizeResult.Fail("Unterminated quoted sheet name.", start);
+                if (k >= s.Length || s[k] != '!') return TokenizeResult.Fail("A quoted sheet name must be followed by '!'.", k);
+                string sheet = name.ToString();
+                if (!SheetName.IsValid(sheet))
+                    return TokenizeResult.Fail($"Invalid sheet name '{Clip(sheet, 0, sheet.Length)}'.", start);
+                if (ReadQualified(s, start, sheet, k + 1, tokens, out i) is { } failure) return failure;
+                continue;
+            }
+
+            if (i >= bareRunEnd && SheetName.IsBareChar(c))
+            {
+                int j = i;
+                while (j < s.Length && SheetName.IsBareChar(s[j])) j++;
+                prefixScanSteps += j - i;
+                if (j < s.Length && s[j] == '!')
+                {
+                    // R82: an unquoted prefix must be a valid sheet name that needs no quotes (so not 2024, A1 or TRUE).
+                    // The error is reported at the '!', where the text stops being a number or word (D-12: "A1!" at 2).
+                    var sheet = s.AsSpan(i, j - i);
+                    if (!SheetName.IsValid(sheet))
+                        return TokenizeResult.Fail($"Invalid sheet name '{Clip(s, i, j - i)}'.", j);
+                    if (SheetName.RequiresQuoting(sheet))
+                        return TokenizeResult.Fail($"Sheet name '{Clip(s, i, j - i)}' must be quoted.", j);
+                    if (ReadQualified(s, start, sheet.ToString(), j + 1, tokens, out i) is { } failure) return failure;
+                    continue;
+                }
+                bareRunEnd = j;
+            }
 
             if (IsDigit(c) || (c == '.' && i + 1 < s.Length && IsDigit(s[i + 1])))
             {
@@ -152,6 +209,23 @@ public static class Tokenizer
         }
         tokens.Add(new Token(TokenKind.End, s.Length, ""));
         return TokenizeResult.Ok(tokens);
+    }
+
+    /// <summary>
+    /// Reads the cell reference that must follow a sheet prefix's '!' at <paramref name="at"/> with no whitespace (R82)
+    /// and adds one qualified CellRef token from <paramref name="start"/> to its end. A name, a function, a space or
+    /// anything else after the '!' is an error; a following ':' range is left to the parser.
+    /// </summary>
+    /// <returns>The failure, or null with <paramref name="next"/> set to the index after the reference.</returns>
+    private static TokenizeResult? ReadQualified(string s, int start, string sheet, int at, List<Token> tokens, out int next)
+    {
+        int end = at;
+        while (end < s.Length && (IsAsciiLetter(s[end]) || IsDigit(s[end]) || s[end] is '_' or '.' or '$')) end++;
+        next = end;
+        if (!CellReference.TryParse(s.AsSpan(at, end - at), out var reference))
+            return TokenizeResult.Fail($"Expected a cell reference after '{Clip(s, start, at - start)}'.", at);
+        tokens.Add(new Token(TokenKind.CellRef, start, s.Substring(start, end - start), Reference: reference, Sheet: sheet));
+        return null;
     }
 
     // digits ['.' digits*] [exp] | '.' digits [exp]; exp = [eE][+-]?digits (consumed only when digits follow).

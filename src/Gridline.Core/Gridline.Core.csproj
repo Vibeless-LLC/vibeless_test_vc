@@ -3,7 +3,9 @@
     <InternalsVisibleTo Include="Gridline.Core.Tests" />
     <!-- Workbook.UsedCellCount (O(1)) for the App's SelectionSummary strategy choice; not part of the §9.1 surface. -->
     <InternalsVisibleTo Include="Gridline.App" />
-    <!-- Workbook.FromCells(cells, names): the loader entry for names that may hold a #REF! target (ruling P1, R59). -->
+    <!-- Workbook.FromSheets / FromCells(cells, names): the loader entries for names that may hold a #REF! target (ruling P1, R59); GetSheetCells and UsedCellCount for the version 2 writer (CR1.5, D-56). -->
     <InternalsVisibleTo Include="Gridline.IO" />
+    <!-- SheetName.TrySplitQualified / TryReadQuoted: the CLI parses qualified addresses and quoted sheet-name tokens with the same R82 code (CR1.7, R87, D-58; ruling P1 precedent). The Gridline.Cli project's assembly is named gridline. -->
+    <InternalsVisibleTo Include="gridline" />
   </ItemGroup>
 </Project>

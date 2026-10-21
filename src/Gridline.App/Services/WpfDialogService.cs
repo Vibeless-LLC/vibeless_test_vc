@@ -5,7 +5,8 @@ using Microsoft.Win32;
 namespace Gridline.App.Services;
 
 /// <summary><see cref="IDialogService"/> over WPF: message boxes, the Win32 Open and Save As dialogs (via
-/// Microsoft.Win32) and <see cref="UnsavedChangesWindow"/>, owned by the main window when it is open.</summary>
+/// Microsoft.Win32), <see cref="UnsavedChangesWindow"/> and <see cref="RenameSheetWindow"/>, owned by the main window when
+/// it is open.</summary>
 public sealed class WpfDialogService : IDialogService
 {
     private const string Filter = "Gridline workbooks (*.gridline)|*.gridline";
@@ -78,5 +79,13 @@ public sealed class WpfDialogService : IDialogService
         }
         else dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
         dialog.ShowDialog();
+    }
+
+    public string? PromptSheetName(string currentName)
+    {
+        var dialog = new RenameSheetWindow(currentName);
+        if (Owner is { } owner) dialog.Owner = owner;
+        else dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        return dialog.ShowDialog() == true ? dialog.NewName : null;
     }
 }

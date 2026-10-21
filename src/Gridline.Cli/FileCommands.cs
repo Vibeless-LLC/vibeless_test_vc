@@ -23,12 +23,16 @@ public static class FileCommands
         if (all && addresses.Count > 0) throw Usage("--all cannot be combined with addresses");
         if (!all && addresses.Count == 0) throw Usage("eval requires at least one <addr> or --all");
 
-        var canonical = new List<string>(addresses.Count);
-        foreach (string a in addresses) canonical.Add(CellArgs.Canonical(a)); // all validated before any output
+        var parsed = new List<AddressArg>(addresses.Count);
+        foreach (string a in addresses) parsed.Add(CellArgs.ParseAddress(a)); // all validated before the file is read
 
         Workbook wb = GridlineFile.LoadFromPath(file);
+        // CR1.7, R87: every sheet is resolved (unknown → exit 5) before any output; each address echoes canonically,
+        // qualified exactly when given qualified. --all follows the GetUsedAddresses rule (CR1.3).
+        var canonical = new List<string>(parsed.Count);
+        foreach (var a in parsed) canonical.Add(CellArgs.Resolve(wb, a));
         foreach (string addr in all ? wb.GetUsedAddresses() : canonical)
-            ctx.Out(addr + "\t" + wb.GetValue(addr).ToCanonicalString() + "\n");
+            ctx.Out(CellArgs.Echo(addr) + "\t" + wb.GetValue(addr).ToCanonicalString() + "\n");
         return ExitCodes.Success;
     }
 
@@ -46,10 +50,10 @@ public static class FileCommands
         if (outPath is { Length: 0 }) throw Usage("--out requires a non-empty path");
 
         CellArgs.CheckInputLength(input);
-        string canonical = CellArgs.Canonical(addr);
+        AddressArg parsed = CellArgs.ParseAddress(addr);
 
         Workbook wb = GridlineFile.LoadFromPath(file);
-        wb.SetCell(canonical, input);
+        wb.SetCell(CellArgs.Resolve(wb, parsed), input); // unknown sheet → exit 5, nothing saved
         GridlineFile.SaveToPath(wb, outPath ?? file);
         return ExitCodes.Success;
     }

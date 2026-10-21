@@ -11,8 +11,8 @@ public enum UnsavedChangesChoice
 /// <summary>
 /// The seam between ViewModels and modal UI, so ViewModel tests run without windows (a fake records the calls): error
 /// messages, the Win32 Open and Save As file dialogs with a <c>*.gridline</c> filter, the same two with a <c>*.csv</c>
-/// filter for Import CSV and Export CSV (§11.5, R74), the Save / Don't Save / Cancel prompt (§11.5, R45) and the
-/// RecoveryDialog (§11.6, R50).
+/// filter for Import CSV and Export CSV (§11.5, R74), the Save / Don't Save / Cancel prompt (§11.5, R45), the
+/// RecoveryDialog (§11.6, R50) and the sheet tab's Rename dialog (CR1.8, R88).
 /// </summary>
 public interface IDialogService
 {
@@ -38,4 +38,8 @@ public interface IDialogService
 
     /// <summary>The RecoveryDialog (§11.6, R50) over <paramref name="recovery"/>; returns when it closes.</summary>
     void ShowRecovery(ViewModels.RecoveryViewModel recovery);
+
+    /// <summary>The sheet Rename dialog (CR1.8, R88; its box is <c>RenameSheetBox</c>) starting with
+    /// <paramref name="currentName"/>; returns the typed name verbatim, or null when cancelled.</summary>
+    string? PromptSheetName(string currentName);
 }

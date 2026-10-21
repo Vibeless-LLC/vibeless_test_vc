@@ -43,6 +43,57 @@ public class PrecedentExtractorTests
     }
 
     [Fact]
+    public void Qualified_precedents_carry_their_upper_cased_sheet_and_unqualified_ones_null()
+    {
+        // CR1.2: each precedent exposes its sheet; Cells and Ranges keep only the unqualified (own-sheet) ones.
+        var p = Extract("A1+Data!A1+data!$A$1+'My Sheet'!B2+SUM(A1:B2,Data!B2:A1,'O''Brien'!C3:C4)");
+        Assert.Equal(new CellPrecedent[]
+        {
+            new(null, CellAddress.Parse("A1")),
+            new("DATA", CellAddress.Parse("A1")),
+            new("MY SHEET", CellAddress.Parse("B2")),
+        }, p.CellPrecedents);
+        Assert.Equal(new RangePrecedent[]
+        {
+            new(null, CellRange.Parse("A1:B2")),
+            new("DATA", CellRange.Parse("A1:B2")),
+            new("O'BRIEN", CellRange.Parse("C3:C4")),
+        }, p.RangePrecedents);
+        Assert.Equal(new[] { CellAddress.Parse("A1") }, p.Cells);
+        Assert.Equal(new[] { CellRange.Parse("A1:B2") }, p.Ranges);
+    }
+
+    [Fact]
+    public void Only_qualified_references_are_still_precedents()
+    {
+        var p = Extract("Data!A1");
+        Assert.False(p.IsEmpty);
+        Assert.Empty(p.Cells);
+        Assert.Equal(new CellPrecedent[] { new("DATA", CellAddress.Parse("A1")) }, p.CellPrecedents);
+    }
+
+    [Fact]
+    public void Unqualified_precedents_are_unchanged_and_have_null_sheets()
+    {
+        var p = Extract("B1+SUM($C$3:A1)");
+        Assert.Equal(p.Cells, p.CellPrecedents.Select(c => c.Address));
+        Assert.Equal(p.Ranges, p.RangePrecedents.Select(r => r.Range));
+        Assert.All(p.CellPrecedents, c => Assert.Null(c.Sheet));
+        Assert.All(p.RangePrecedents, r => Assert.Null(r.Sheet));
+    }
+
+    [Fact]
+    public void Resized_rectangle_lies_on_the_sheet_of_sum_range()
+    {
+        // R68: SUMIF(range, criteria, sum_range) reads the rectangle anchored at sum_range, sized like range.
+        var p = Extract("SUMIF(A1:B3,\">0\",Data!D1)");
+        Assert.Contains(new RangePrecedent("DATA", CellRange.Parse("D1:E3")), p.RangePrecedents);
+        Assert.DoesNotContain(CellRange.Parse("D1:E3"), p.Ranges);
+        var q = Extract("SUMIF(Data!A1:B3,\">0\",D1)");
+        Assert.Contains(CellRange.Parse("D1:E3"), q.Ranges);
+    }
+
+    [Fact]
     public void Failed_parse_and_null_have_no_precedents()
     {
         var failed = FormulaParser.Parse("A1+", Arities);

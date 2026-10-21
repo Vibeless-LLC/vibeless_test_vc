@@ -331,8 +331,8 @@ public sealed class CsvAndStructureCommandTests : IDisposable
             "NAME Zed $A$1\nNAME alpha $b$2:$a$1\nNAMES\nSET A1 5\nSET C1 =Zed*2\nGET C1\nUNNAME zed\nNAMES\nUNDO\nNAMES\nUNDO\nUNDO\nUNDO\nNAMES\n");
         Assert.Equal(0, code);
         Assert.Equal(
-            "NAME\talpha\t$A$1:$B$2\nNAME\tZed\t$A$1\n" + "C1\tN:10\n" + "NAME\talpha\t$A$1:$B$2\n"
-            + "OK\nNAME\talpha\t$A$1:$B$2\nNAME\tZed\t$A$1\n" + "OK\nOK\nOK\nNAME\tZed\t$A$1\n", o);
+            "NAME\talpha\tSheet1!$A$1:$B$2\nNAME\tZed\tSheet1!$A$1\n" + "C1\tN:10\n" + "NAME\talpha\tSheet1!$A$1:$B$2\n"
+            + "OK\nNAME\talpha\tSheet1!$A$1:$B$2\nNAME\tZed\tSheet1!$A$1\n" + "OK\nOK\nOK\nNAME\tZed\tSheet1!$A$1\n", o);
     }
 
     [Fact]
@@ -343,12 +343,23 @@ public sealed class CsvAndStructureCommandTests : IDisposable
         Assert.Equal("", o);
     }
 
+    // CR1.4, R77, R87: NAMES prints the qualified form; a qualified refersTo is stored canonically, an unknown sheet is ERR.
+    [Fact]
+    public void Names_PrintQualifiedValues()
+    {
+        var (code, o) = Script("NAME Rate sheet1!$b$1\nNAME x Nope!$A$1\nNAME Total $A$1:$A$3\nNAMES\n");
+        Assert.Equal(4, code); // a script with an ERR line exits 4
+        var lines = o.Split('\n');
+        Assert.StartsWith("ERR\t", lines[0], StringComparison.Ordinal);
+        Assert.Equal(["NAME\tRate\tSheet1!$B$1", "NAME\tTotal\tSheet1!$A$1:$A$3", ""], lines[1..]);
+    }
+
     [Fact]
     public void Names_AreSortedOrdinalIgnoreCase()
     {
         var (code, o) = Script("NAME b $A$1\nNAME A $A$2\nNAME _c $A$3\nNAME Bz $A$4\nNAMES\n");
         Assert.Equal(0, code);
-        Assert.Equal("NAME\tA\t$A$2\nNAME\tb\t$A$1\nNAME\tBz\t$A$4\nNAME\t_c\t$A$3\n", o); // '_' sorts after letters (OrdinalIgnoreCase upper-cases)
+        Assert.Equal("NAME\tA\tSheet1!$A$2\nNAME\tb\tSheet1!$A$1\nNAME\tBz\tSheet1!$A$4\nNAME\t_c\tSheet1!$A$3\n", o); // '_' sorts after letters (OrdinalIgnoreCase upper-cases)
     }
 
     [Theory]
@@ -372,7 +383,7 @@ public sealed class CsvAndStructureCommandTests : IDisposable
         Assert.Equal(4, code);
         string[] lines = o.Split('\n');
         Assert.StartsWith("ERR\t", lines[0]);
-        Assert.Equal(["NAME\tkeep\t$A$1", ""], lines[1..]);
+        Assert.Equal(["NAME\tkeep\tSheet1!$A$1", ""], lines[1..]);
     }
 
     [Fact]
@@ -395,7 +406,7 @@ public sealed class CsvAndStructureCommandTests : IDisposable
     {
         var (code, o) = Script("NAME x $A$1\nBEGIN\nSET A1 7\n" + line + "\nEND\nGET A1\nNAMES\n");
         Assert.Equal(4, code);
-        Assert.Equal("ERR\tcommand not allowed inside BEGIN block\nA1\tN:7\nNAME\tx\t$A$1\n", o);
+        Assert.Equal("ERR\tcommand not allowed inside BEGIN block\nA1\tN:7\nNAME\tx\tSheet1!$A$1\n", o);
     }
 
     [Fact]
@@ -414,7 +425,7 @@ public sealed class CsvAndStructureCommandTests : IDisposable
         var (code, _) = Script($"SET A1 1\nSET A2 2\nNAME rng $A$1:$A$2\nINSERTROWS 1 1\nSAVE {f}\n");
         Assert.Equal(0, code);
         var wb = GridlineFile.LoadFromPath(f);
-        Assert.Equal("$A$2:$A$3", wb.GetNames().Single().Value);
+        Assert.Equal("Sheet1!$A$2:$A$3", wb.GetNames().Single().Value);
         Assert.Equal("N:1", wb.GetValue("A2").ToCanonicalString());
     }
 }

@@ -7,10 +7,12 @@ public sealed class RecalcResult
 {
     internal static readonly RecalcResult None = new(0, []);
 
-    internal RecalcResult(int evaluatedFormulaCount, IReadOnlyList<CellAddress> changedCells)
+    private IReadOnlyList<CellAddress>? _changedCells;
+
+    internal RecalcResult(int evaluatedFormulaCount, IReadOnlyList<long> changedKeys)
     {
         EvaluatedFormulaCount = evaluatedFormulaCount;
-        ChangedCells = changedCells;
+        ChangedKeys = changedKeys;
     }
 
     /// <summary>
@@ -22,6 +24,23 @@ public sealed class RecalcResult
     /// <summary>
     /// Formula cells whose value differs from the value they held before this recalc, in evaluation order, each once.
     /// The caller's directly edited constant cells are not included (the graph does not see constant values change).
+    /// Each address drops the internal sheet binding (D-52, D-53): with several sheets, cells of different sheets are
+    /// listed without their sheet and may coincide; see the internal <see cref="ChangedKeys"/>.
     /// </summary>
-    public IReadOnlyList<CellAddress> ChangedCells { get; }
+    public IReadOnlyList<CellAddress> ChangedCells
+    {
+        get
+        {
+            if (_changedCells is null)
+            {
+                var cells = new CellAddress[ChangedKeys.Count];
+                for (int i = 0; i < cells.Length; i++) cells[i] = SheetCellKey.Address(ChangedKeys[i]);
+                _changedCells = cells;
+            }
+            return _changedCells;
+        }
+    }
+
+    /// <summary>As <see cref="ChangedCells"/>, as sheet-qualified keys (<see cref="SheetCellKey"/>, CR1.1).</summary>
+    internal IReadOnlyList<long> ChangedKeys { get; }
 }

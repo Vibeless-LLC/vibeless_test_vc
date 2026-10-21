@@ -319,22 +319,22 @@ public class WorkbookStructureTests
         wb.DefineName("Total", "$A$5:$A$6");
         wb.DefineName("Above", "$A$1:$C$2");
         wb.InsertRows(3, 2);
-        Assert.Equal([P("Above", "$A$1:$C$2"), P("Rate", "$A$7"), P("Total", "$A$7:$A$8")], wb.GetNames());
+        Assert.Equal([P("Above", "Sheet1!$A$1:$C$2"), P("Rate", "Sheet1!$A$7"), P("Total", "Sheet1!$A$7:$A$8")], wb.GetNames());
         Assert.Equal("=Rate*2", wb.GetInput("B1")); // name references are not cell references: verbatim
         Assert.Equal(N(6), wb.GetValue("B1"));
         Assert.Equal(N(7), wb.GetValue("B2"));
 
         wb.DeleteRows(8, 1);
-        Assert.Equal([P("Above", "$A$1:$C$2"), P("Rate", "$A$7"), P("Total", "$A$7:$A$7")], wb.GetNames());
+        Assert.Equal([P("Above", "Sheet1!$A$1:$C$2"), P("Rate", "Sheet1!$A$7"), P("Total", "Sheet1!$A$7:$A$7")], wb.GetNames());
         Assert.Equal(N(3), wb.GetValue("B2"));
 
         wb.DeleteRows(7, 1); // both targets fully deleted
-        Assert.Equal([P("Above", "$A$1:$C$2"), P("Rate", "#REF!"), P("Total", "#REF!")], wb.GetNames());
+        Assert.Equal([P("Above", "Sheet1!$A$1:$C$2"), P("Rate", "#REF!"), P("Total", "#REF!")], wb.GetNames());
         Assert.Equal(E(ErrorCodes.Ref), wb.GetValue("B1"));
         Assert.Equal(E(ErrorCodes.Ref), wb.GetValue("B2"));
 
         wb.InsertRows(1, 1); // a deleted target stays deleted
-        Assert.Equal([P("Above", "$A$2:$C$3"), P("Rate", "#REF!"), P("Total", "#REF!")], wb.GetNames());
+        Assert.Equal([P("Above", "Sheet1!$A$2:$C$3"), P("Rate", "#REF!"), P("Total", "#REF!")], wb.GetNames());
     }
 
     [Fact]
@@ -344,11 +344,11 @@ public class WorkbookStructureTests
         wb.DefineName("Rate", "$E$1");
         wb.DefineName("Total", "$E$1:$F$1");
         wb.InsertColumns(3, 2);
-        Assert.Equal([P("Rate", "$G$1"), P("Total", "$G$1:$H$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$G$1"), P("Total", "Sheet1!$G$1:$H$1")], wb.GetNames());
         Assert.Equal(N(6), wb.GetValue("A2"));
         Assert.Equal("=rate*2", wb.GetInput("A2"));
         wb.DeleteColumns(7, 1);
-        Assert.Equal([P("Rate", "#REF!"), P("Total", "$G$1:$G$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "#REF!"), P("Total", "Sheet1!$G$1:$G$1")], wb.GetNames());
         Assert.Equal(E(ErrorCodes.Ref), wb.GetValue("A2"));
         Assert.Equal(N(4), wb.GetValue("A3"));
     }
@@ -362,14 +362,14 @@ public class WorkbookStructureTests
         wb.DefineName("Low", "$A$99998:$B$99999");
         wb.DefineName("Wide", "$ZY$1:$ZZ$1");
         wb.InsertRows(99999, 2);
-        Assert.Equal([P("Edge", "#REF!"), P("Low", "$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "$ZY$1:$ZZ$1")], wb.GetNames());
+        Assert.Equal([P("Edge", "#REF!"), P("Low", "Sheet1!$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "Sheet1!$ZY$1:$ZZ$1")], wb.GetNames());
         Assert.True(wb.CanUndo);
         wb.InsertColumns(702, 1); // Wide's end alone passes the bound: clamped back to itself, so nothing changes
-        Assert.Equal([P("Edge", "#REF!"), P("Low", "$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "$ZY$1:$ZZ$1")], wb.GetNames());
+        Assert.Equal([P("Edge", "#REF!"), P("Low", "Sheet1!$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "Sheet1!$ZY$1:$ZZ$1")], wb.GetNames());
         wb.InsertColumns(701, 1); // start ZY -> ZZ, end clamped
-        Assert.Equal([P("Edge", "#REF!"), P("Low", "$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "$ZZ$1:$ZZ$1")], wb.GetNames());
+        Assert.Equal([P("Edge", "#REF!"), P("Low", "Sheet1!$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "Sheet1!$ZZ$1:$ZZ$1")], wb.GetNames());
         wb.InsertColumns(702, 1); // the start passes the bound
-        Assert.Equal([P("Edge", "#REF!"), P("Low", "$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "#REF!")], wb.GetNames());
+        Assert.Equal([P("Edge", "#REF!"), P("Low", "Sheet1!$A$99998:$B$100000"), P("Tail", "#REF!"), P("Wide", "#REF!")], wb.GetNames());
     }
 
     [Fact]
@@ -378,14 +378,14 @@ public class WorkbookStructureTests
         var wb = Workbook.FromCells([], [P("Far", "$A$9")]); // internal loader entry: no DefineName step
         var log = new EventLog(wb);
         wb.InsertRows(5, 1);
-        Assert.Equal([P("Far", "$A$10")], wb.GetNames());
+        Assert.Equal([P("Far", "Sheet1!$A$10")], wb.GetNames());
         Assert.Empty(log.Events);
         Assert.True(wb.CanUndo);
         Assert.True(wb.Undo());
-        Assert.Equal([P("Far", "$A$9")], wb.GetNames());
+        Assert.Equal([P("Far", "Sheet1!$A$9")], wb.GetNames());
         Assert.False(wb.CanUndo);
         Assert.True(wb.Redo());
-        Assert.Equal([P("Far", "$A$10")], wb.GetNames());
+        Assert.Equal([P("Far", "Sheet1!$A$10")], wb.GetNames());
     }
 
     [Fact]
@@ -434,7 +434,7 @@ public class WorkbookStructureTests
         var ex = Assert.Throws<ArgumentOutOfRangeException>(() => Do(wb, op, start, count));
         Assert.Equal(param, ex.ParamName);
         Assert.Equal(before, Snapshot(wb));
-        Assert.Equal([P("Rate", "$A$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$A$1")], wb.GetNames());
         Assert.Empty(log.Events);
         Assert.True(wb.Undo()); // the newest step is still DefineName
         Assert.Empty(wb.GetNames());
@@ -472,7 +472,7 @@ public class WorkbookStructureTests
         var log = new EventLog(wb);
         Assert.Throws<InvalidOperationException>(() => Do(wb, op, start, count));
         Assert.Equal(before, Snapshot(wb));
-        Assert.Equal([P("Rate", "$A$2")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$A$2")], wb.GetNames());
         Assert.Empty(log.Events);
         Assert.Equal(recalc, wb.LastRecalc.EvaluatedFormulaCount);
         Assert.True(wb.Undo()); // the history is unchanged: the newest step is still SetCell A2
@@ -523,7 +523,7 @@ public class WorkbookStructureTests
         wb.InsertColumns(2, 1); // B..E move to C..F
         Assert.Equal("=A1*C1", wb.GetInput("D1"));
         Assert.Equal("=SUM(A1:C1)", wb.GetInput("E1"));
-        Assert.Equal([P("Rate", "$C$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$C$1")], wb.GetNames());
         wb.SetCell("C1", "5");
         Assert.Equal(N(10), wb.GetValue("D1"));
         Assert.Equal(N(7), wb.GetValue("E1"));
@@ -719,7 +719,7 @@ public class WorkbookStructureTests
         resolver.Armed = true;
         Assert.Throws<InvalidOperationException>(() => Do(wb, op, 1, 1));
         Assert.Equal(before, Snapshot(wb));
-        Assert.Equal([P("Rate", "$C$3")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$C$3")], wb.GetNames());
         Assert.False(wb.CanUndo);
         Assert.Empty(log.Events);
 
@@ -740,7 +740,7 @@ public class WorkbookStructureTests
         resolver.Armed = true;
         Assert.Throws<InvalidOperationException>(() => wb.Undo());
         Assert.Equal(after, Snapshot(wb));
-        Assert.Equal([P("Rate", "$C$4")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$C$4")], wb.GetNames());
         Assert.True(wb.CanUndo);
         resolver.Armed = false;
         Assert.True(wb.Undo());
@@ -748,7 +748,7 @@ public class WorkbookStructureTests
         resolver.Armed = true;
         Assert.Throws<InvalidOperationException>(() => wb.Redo());
         Assert.Equal(before, Snapshot(wb));
-        Assert.Equal([P("Rate", "$C$3")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$C$3")], wb.GetNames());
         Assert.True(wb.CanRedo);
         resolver.Armed = false;
         Assert.True(wb.Redo());

@@ -194,20 +194,23 @@ public static class FormulaParser
             }
         }
 
-        // CellRef [':' CellRef] -- ':' is valid only between two single cell references.
+        // CellRef [':' CellRef] -- ':' is valid only between two single cell references. A range has one sheet prefix,
+        // on its first corner (CR1.2, R82): Sheet2!A1:Sheet2!B3 and A1:Data!B2 are errors.
         private FormulaNode ReadReference()
         {
             var start = Current;
             _pos++;
-            if (Current.Kind != TokenKind.Colon) return new CellRefNode(start.Reference);
+            if (Current.Kind != TokenKind.Colon) return new CellRefNode(start.Reference, start.Sheet);
             _pos++;
             var end = Current;
             if (end.Kind != TokenKind.CellRef)
                 throw new ParseFailure($"':' must be followed by a cell reference, found {Describe(end)}.", end.Position);
+            if (end.Sheet is not null)
+                throw new ParseFailure("A range has a single sheet prefix, before its first cell reference.", end.Position);
             _pos++;
             if (Current.Kind == TokenKind.Colon)
                 throw new ParseFailure("A range must have exactly two cell references.", Current.Position);
-            return new RangeNode(start.Reference, end.Reference);
+            return new RangeNode(start.Reference, end.Reference, start.Sheet);
         }
 
         private bool AtArgumentStart()

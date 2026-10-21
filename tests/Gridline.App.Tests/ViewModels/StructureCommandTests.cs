@@ -284,7 +284,7 @@ public sealed class StructureCommandTests
             Assert.True(_vm.InsertSelected());
 
             Assert.Equal(0, cellsChanged);
-            Assert.Equal("$A$101", Assert.Single(_vm.Workbook.GetNames()).Value);
+            Assert.Equal("Sheet1!$A$101", Assert.Single(_vm.Workbook.GetNames()).Value);
             Assert.True(_vm.IsDirty);
             Assert.Equal("Gridline - named.gridline *", _vm.Title);
             Assert.Contains(nameof(MainViewModel.Title), changed);
@@ -293,7 +293,7 @@ public sealed class StructureCommandTests
             Assert.True(_vm.UndoCommand.CanExecute(null));
 
             _vm.UndoCommand.Execute(null);
-            Assert.Equal("$A$100", Assert.Single(_vm.Workbook.GetNames()).Value);
+            Assert.Equal("Sheet1!$A$100", Assert.Single(_vm.Workbook.GetNames()).Value);
             Assert.Equal("Gridline - named.gridline", _vm.Title);
         }
         finally { Directory.Delete(dir, recursive: true); }

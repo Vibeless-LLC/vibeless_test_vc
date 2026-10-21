@@ -8,8 +8,17 @@ namespace Gridline.Core.Evaluation;
 /// (including text "" entered as a lone apostrophe, or a formula) returns a non-Blank value, because formula results
 /// are never Blank (§6.6). So <c>GetValue(a).Kind == ValueKind.Blank</c> means exactly "the cell is truly blank".
 /// </summary>
+/// <remarks>A provider is one sheet: the sheet of the formula being evaluated. Qualified references (CR1.2) read other
+/// sheets through <see cref="ResolveSheet"/>.</remarks>
 public interface ICellValueProvider
 {
     /// <summary>The current value of the cell at <paramref name="address"/>; Blank when the cell is empty.</summary>
     CellValue GetValue(CellAddress address);
+
+    /// <summary>
+    /// The provider of the sheet named <paramref name="sheet"/> (matched case-insensitively, R82), which may be this
+    /// provider; null when no such sheet exists, so a reference to it evaluates to #REF!. The default knows no sheets.
+    /// Internal (D-53): only the Workbook's own targets know other sheets, so the public surface stays §9.1 + CR1.3.
+    /// </summary>
+    internal ICellValueProvider? ResolveSheet(string sheet) => null;
 }

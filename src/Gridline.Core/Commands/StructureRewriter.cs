@@ -24,12 +24,17 @@ internal sealed class StructureRewriter : IReferenceRewriter
     private readonly int _start;
     private readonly int _count;
     private readonly int _bound;
+    private readonly string? _editedSheet;
 
     /// <exception cref="ArgumentOutOfRangeException">Start or count is outside the valid range for the axis.</exception>
     /// <remarks>Workbook.Restructure validates the R62 bounds first and reports them with the public parameter names;
     /// these checks are a backstop for other callers (undo, redo and tests), not the user-facing validation (D-43).</remarks>
-    public StructureRewriter(StructureAxis axis, bool insert, int start, int count)
+    /// <param name="editedSheet">The name of the edited sheet (CR1.1, R84): a qualified reference is adjusted only when it
+    /// names this sheet (case-insensitively, R82), an unqualified one only while <see cref="FormulaOnEditedSheet"/>. Null
+    /// (single-sheet callers) adjusts every reference.</param>
+    public StructureRewriter(StructureAxis axis, bool insert, int start, int count, string? editedSheet = null)
     {
+        _editedSheet = editedSheet;
         _rows = axis == StructureAxis.Rows;
         _insert = insert;
         _bound = _rows ? GridBounds.MaxRows : GridBounds.MaxColumns;
@@ -46,6 +51,28 @@ internal sealed class StructureRewriter : IReferenceRewriter
 
     public void Reset() => Changed = false;
 
+    /// <summary>Whether the formula being rewritten lies on the edited sheet, so its unqualified references are adjusted
+    /// (R84). Default true.</summary>
+    public bool FormulaOnEditedSheet { get; set; } = true;
+
+    /// <summary>True when a reference written with <paramref name="sheet"/> (null = unqualified) points into the edited sheet.</summary>
+    private bool AppliesTo(string? sheet) =>
+        sheet is null ? FormulaOnEditedSheet : _editedSheet is null || sheet.Equals(_editedSheet, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The sheet-aware rewrite the printer calls (CR1.2): a reference to another sheet is kept as written.</summary>
+    public (string? Sheet, CellReference Reference)? Rewrite(string? sheet, CellReference reference)
+    {
+        if (!AppliesTo(sheet)) return (sheet, reference);
+        return Rewrite(reference) is { } r ? (sheet, r) : null;
+    }
+
+    /// <summary>The sheet-aware range rewrite the printer calls (CR1.2): a range on another sheet is kept as written.</summary>
+    public (string? Sheet, CellReference Start, CellReference End)? RewriteRange(string? sheet, CellReference start, CellReference end)
+    {
+        if (!AppliesTo(sheet)) return (sheet, start, end);
+        return RewriteRange(start, end) is { } c ? (sheet, c.Start, c.End) : null;
+    }
+
     /// <summary>True when the edit changes or invalidates any reference in the formula <paramref name="root"/>, so it must
     /// be reprinted; false when its text stays verbatim (§9.5). Walks the tree with the caller's
     /// <paramref name="stack"/> (no recursion, R10) and allocates nothing for an unaffected formula, so Restructure
@@ -59,8 +86,8 @@ internal sealed class StructureRewriter : IReferenceRewriter
         {
             switch (stack.Pop())
             {
-                case CellRefNode c: Rewrite(c.Reference); break;
-                case RangeNode r: RewriteRange(r.Start, r.End); break;
+                case CellRefNode c: Rewrite(c.Sheet, c.Reference); break; // sheet-aware: other sheets are unaffected
+                case RangeNode r: RewriteRange(r.Sheet, r.Start, r.End); break;
                 case FunctionCallNode f:
                     for (int i = f.Arguments.Count - 1; i >= 0; i--) stack.Push(f.Arguments[i]);
                     break;

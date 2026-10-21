@@ -146,4 +146,50 @@ public class MainWindowTests
         }
         finally { Directory.Delete(dir, recursive: true); }
     });
+
+    /// <summary>CR1.8, R88, D-59: the tab strip's items and selection follow the ViewModel after Add, Delete (of the last
+    /// tab), Move, Undo and Redo, and a UIA-style selection of a tab activates its sheet; the strip never takes focus.</summary>
+    [Fact]
+    public void SheetTabStrip_FollowsTheSheets_AndSelectingATabActivatesIt() => RunSta(() =>
+    {
+        var vm = NewViewModel(new FakeDialogService { DefaultPromptAnswer = UnsavedChangesChoice.DontSave });
+        var window = Offscreen(vm);
+        var strip = window.SheetTabStrip;
+        string[] Names() => [.. strip.Items.Cast<SheetTabViewModel>().Select(t => t.Name)];
+        void Check(int selected, params string[] names)
+        {
+            Pump(window);
+            Assert.Equal(names, Names());
+            Assert.Equal(selected, strip.SelectedIndex);
+            Assert.Equal(selected, vm.ActiveSheetIndex);
+        }
+
+        Check(0, "Sheet1");
+        Assert.False(strip.Focusable);
+
+        vm.AddSheet();
+        Check(1, "Sheet1", "Sheet2");
+        vm.AddSheet();
+        Check(2, "Sheet1", "Sheet2", "Sheet3");
+
+        vm.DeleteActiveSheet(); // the last tab: the new last becomes active (R80)
+        Check(1, "Sheet1", "Sheet2");
+        vm.UndoCommand.Execute(null);
+        Check(1, "Sheet1", "Sheet2", "Sheet3");
+        vm.RedoCommand.Execute(null);
+        Check(1, "Sheet1", "Sheet2");
+
+        vm.MoveSheetLeftCommand.Execute(null);
+        Check(0, "Sheet2", "Sheet1");
+
+        var item = (System.Windows.Controls.ListBoxItem)strip.ItemContainerGenerator.ContainerFromIndex(1);
+        Assert.Equal("SheetTab_1", System.Windows.Automation.AutomationProperties.GetAutomationId(item));
+        item.IsSelected = true; // what a UIA SelectionItem.Select does
+        Check(1, "Sheet2", "Sheet1");
+        Assert.Equal("Sheet1", vm.Workbook.ActiveSheet);
+
+        vm.UndoCommand.Execute(null); // undo the move; Sheet1 stays active
+        Check(0, "Sheet1", "Sheet2");
+        window.Close();
+    });
 }

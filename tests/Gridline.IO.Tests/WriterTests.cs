@@ -3,12 +3,38 @@ using Gridline.Core;
 
 namespace Gridline.IO.Tests;
 
-/// <summary>Canonical writer (§8.1, R26). Expected bytes are built with explicit "\n" (no checked-in fixtures).</summary>
+/// <summary>Canonical writer (§8.1, R26; version 2 since CR1.5). Expected bytes are built with explicit "\n" (no
+/// checked-in fixtures).</summary>
 public class WriterTests
 {
     internal static string Lines(params string[] lines) => string.Join("\n", lines) + "\n";
 
     internal static string Text(byte[] bytes) => new UTF8Encoding(false, true).GetString(bytes);
+
+    /// <summary>The version 2 file of a one-sheet workbook (CR1.5): Sheet1 active, <paramref name="names"/> the lines of
+    /// the names object (none: <c>"names": {}</c>), <paramref name="cells"/> the cell lines (none: <c>"cells": []</c>).
+    /// Each line is written at its CR1.5 indent (4 spaces for a name, 8 for a cell).</summary>
+    internal static string OneSheet(string[] names, params string[] cells)
+    {
+        var lines = new List<string> { "{", "  \"format\": \"gridline\",", "  \"version\": 2,", "  \"activeSheet\": \"Sheet1\"," };
+        if (names.Length == 0) lines.Add("  \"names\": {},");
+        else
+        {
+            lines.Add("  \"names\": {");
+            for (int i = 0; i < names.Length; i++) lines.Add("    " + names[i] + (i + 1 < names.Length ? "," : ""));
+            lines.Add("  },");
+        }
+        lines.AddRange(["  \"sheets\": [", "    {", "      \"name\": \"Sheet1\","]);
+        if (cells.Length == 0) lines.Add("      \"cells\": []");
+        else
+        {
+            lines.Add("      \"cells\": [");
+            for (int i = 0; i < cells.Length; i++) lines.Add("        " + cells[i] + (i + 1 < cells.Length ? "," : ""));
+            lines.Add("      ]");
+        }
+        lines.AddRange(["    }", "  ]", "}"]);
+        return Lines([.. lines]);
+    }
 
     internal static Workbook Make(params (string Address, string Input)[] cells)
     {
@@ -20,7 +46,10 @@ public class WriterTests
     [Fact]
     public void EmptyWorkbook_ExactBytes()
     {
-        var expected = Lines("{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": []", "}");
+        // CR1.5: saving always writes version 2; a new workbook has the one active sheet Sheet1.
+        var expected = Lines(
+            "{", "  \"format\": \"gridline\",", "  \"version\": 2,", "  \"activeSheet\": \"Sheet1\",", "  \"names\": {},",
+            "  \"sheets\": [", "    {", "      \"name\": \"Sheet1\",", "      \"cells\": []", "    }", "  ]", "}");
         Assert.Equal(Encoding.UTF8.GetBytes(expected), GridlineSerializer.Serialize(new Workbook()));
     }
 
@@ -31,13 +60,19 @@ public class WriterTests
         var expected = Lines(
             "{",
             "  \"format\": \"gridline\",",
-            "  \"version\": 1,",
+            "  \"version\": 2,",
+            "  \"activeSheet\": \"Sheet1\",",
             "  \"names\": {},",
-            "  \"cells\": [",
-            "    [\"A1\", \"10\"],",
-            "    [\"C1\", \"hello\"],",
-            "    [\"A2\", \"TRUE\"],",
-            "    [\"B2\", \"=A1+1\"]",
+            "  \"sheets\": [",
+            "    {",
+            "      \"name\": \"Sheet1\",",
+            "      \"cells\": [",
+            "        [\"A1\", \"10\"],",
+            "        [\"C1\", \"hello\"],",
+            "        [\"A2\", \"TRUE\"],",
+            "        [\"B2\", \"=A1+1\"]",
+            "      ]",
+            "    }",
             "  ]",
             "}");
         var bytes = GridlineSerializer.Serialize(wb);
@@ -93,9 +128,7 @@ public class WriterTests
     public void Escaping_PerClass(string input, string escaped)
     {
         var wb = Make(("A1", input));
-        var expected = Lines(
-            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": [",
-            "    [\"A1\", \"" + escaped + "\"]", "  ]", "}");
+        var expected = OneSheet([], "[\"A1\", \"" + escaped + "\"]");
         Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb)));
     }
 
@@ -104,9 +137,7 @@ public class WriterTests
     {
         string input = "q\"b\\s/\b\f\n\r\t\u0000\u001f\u007fé日\U0001F600\ud800x\udfff<>&'";
         string escaped = "q\\\"b\\\\s/\\b\\f\\n\\r\\t\\u0000\\u001f\u007fé日\U0001F600\\ud800x\\udfff<>&'";
-        var expected = Lines(
-            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {},", "  \"cells\": [",
-            "    [\"A1\", \"" + escaped + "\"]", "  ]", "}");
+        var expected = OneSheet([], "[\"A1\", \"" + escaped + "\"]");
         Assert.Equal(expected, Text(GridlineSerializer.Serialize(Make(("A1", input)))));
     }
 
@@ -133,10 +164,10 @@ public class WriterTests
         wb.DefineName("zeta", "$A$1");
         wb.DefineName("Alpha", "$b$2");
         wb.DefineName("beta", "$C$1:$A$3");
-        var expected = Lines(
-            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",
-            "    \"Alpha\": \"$B$2\",", "    \"beta\": \"$A$1:$C$3\",", "    \"zeta\": \"$A$1\"", "  },",
-            "  \"cells\": [", "    [\"A1\", \"1\"]", "  ]", "}");
+        // CR1.5, R77: names are written sheet-qualified.
+        var expected = OneSheet(
+            ["\"Alpha\": \"Sheet1!$B$2\"", "\"beta\": \"Sheet1!$A$1:$C$3\"", "\"zeta\": \"Sheet1!$A$1\""],
+            "[\"A1\", \"1\"]");
         Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb)));
     }
 
@@ -156,9 +187,7 @@ public class WriterTests
     {
         var wb = new Workbook();
         wb.DefineName("X", "$A$1");
-        var expected = Lines(
-            "{", "  \"format\": \"gridline\",", "  \"version\": 1,", "  \"names\": {",
-            "    \"X\": \"$A$1\"", "  },", "  \"cells\": []", "}");
+        var expected = OneSheet(["\"X\": \"Sheet1!$A$1\""]);
         Assert.Equal(expected, Text(GridlineSerializer.Serialize(wb)));
     }
 
