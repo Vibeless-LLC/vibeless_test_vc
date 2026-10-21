@@ -47,7 +47,7 @@ public sealed partial class Workbook
 
     /// <summary>Validates, computes the step payload (pure), and performs it unless it is a no-op (R63). The edit acts on
     /// the active sheet (ruling P5-2, R84): its cells move, and so do the unqualified references of its formulas, the
-    /// qualified references to it from every sheet, and the names bound to it (P5-1). References to other sheets are untouched.</summary>
+    /// qualified references to it from every sheet, and the names pointing into it (R77, R84). References to other sheets are untouched.</summary>
     private void Restructure(StructureAxis axis, bool insert, int start, int count, string startParam)
     {
         bool rows = axis == StructureAxis.Rows;
@@ -114,8 +114,8 @@ public sealed partial class Workbook
         var nameEdits = ImmutableArray.CreateBuilder<NameEdit>();
         foreach (var entry in _names.Values)
         {
-            if (entry.Definition.Sheet != edited.Id) continue; // P5-1: a name bound to another sheet is untouched
-            string adjusted = AdjustRefersTo(entry.Target, map);
+            if (entry.Definition.Sheet != edited.Id) continue; // R84: a name pointing into another sheet is untouched
+            string adjusted = AdjustRefersTo(entry.Target, map, edited.Prefix);
             if (!string.Equals(adjusted, entry.RefersTo, StringComparison.Ordinal))
                 nameEdits.Add(new NameEdit(entry.Definition, entry.Definition with { RefersTo = adjusted }));
         }
@@ -133,9 +133,10 @@ public sealed partial class Workbook
         FinishStructure(result, changed);
     }
 
-    /// <summary>The §9.5 adjustment of a name target, as a canonical refersTo (R58); <c>#REF!</c> once nothing of it
-    /// survives (§9.6). A deleted target stays deleted.</summary>
-    private static string AdjustRefersTo(NameTarget target, StructureRewriter map)
+    /// <summary>The §9.5 adjustment of a name target on the edited sheet, as a canonical qualified refersTo
+    /// (<paramref name="prefix"/> + cells, R58, R77); <c>#REF!</c> once nothing of it survives (§9.6). A deleted target
+    /// stays deleted.</summary>
+    private static string AdjustRefersTo(NameTarget target, StructureRewriter map, string prefix)
     {
         if (target.Kind == NameTargetKind.Invalid) return NameSyntax.DeletedTarget;
         var tl = target.Range.TopLeft;
@@ -143,11 +144,11 @@ public sealed partial class Workbook
         if (target.Kind == NameTargetKind.Cell)
         {
             int to = map.MapPosition(map.PositionOf(tl));
-            return to < 0 ? NameSyntax.DeletedTarget : Absolute(map.With(tl, to));
+            return to < 0 ? NameSyntax.DeletedTarget : prefix + Absolute(map.With(tl, to));
         }
         var span = map.MapSpan(map.PositionOf(tl), map.PositionOf(br));
         if (span is not { } s) return NameSyntax.DeletedTarget;
-        return Absolute(map.With(tl, s.Lo)) + ":" + Absolute(map.With(br, s.Hi));
+        return prefix + Absolute(map.With(tl, s.Lo)) + ":" + Absolute(map.With(br, s.Hi));
     }
 
     private static string Absolute(CellAddress a) => new CellReference(a, ColumnAbsolute: true, RowAbsolute: true).ToString();

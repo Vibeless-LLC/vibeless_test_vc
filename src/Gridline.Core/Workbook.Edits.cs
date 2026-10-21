@@ -183,7 +183,7 @@ public sealed partial class Workbook
             _names.TryGetValue(nameEdits[i].Name, out oldNames[i]);
             newNames[i] = definition is { } d ? CreateNameEntry(d) : null;
             if (!string.Equals(oldNames[i]?.RefersTo, newNames[i]?.RefersTo, StringComparison.Ordinal)
-                || oldNames[i]?.Definition.Sheet != newNames[i]?.Definition.Sheet) // P5-1: the same text on another sheet
+                || oldNames[i]?.Definition.Sheet != newNames[i]?.Definition.Sheet) // R77: a binding change (by stable id) is a target change
                 (changedNames ??= []).Add(nameEdits[i].Name);
         }
 

@@ -188,4 +188,14 @@ public class PublicApiShapeTests
         Assert.Equal(["row", "count"], t.GetMethod("InsertRows")!.GetParameters().Select(p => p.Name));
         Assert.Equal(["column", "count"], t.GetMethod("DeleteColumns")!.GetParameters().Select(p => p.Name));
     }
+
+    // D-53: the multi-sheet plumbing of evaluation (CR1.2, CR1.4) stays internal, so the public surface is §9.1 + CR1.3.
+    [Fact]
+    public void SheetBindingOfEvaluation_IsNotPublic()
+    {
+        Assert.Null(typeof(Gridline.Core.Evaluation.NameTarget).GetProperty("Sheet", PublicInstance));
+        Assert.Null(typeof(Gridline.Core.Evaluation.ICellValueProvider).GetMethod("ResolveSheet", PublicInstance));
+        Assert.NotNull(typeof(Gridline.Core.Evaluation.NameTarget).GetProperty("Sheet", BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.NotNull(typeof(Gridline.Core.Evaluation.ICellValueProvider).GetMethod("ResolveSheet", BindingFlags.NonPublic | BindingFlags.Instance));
+    }
 }

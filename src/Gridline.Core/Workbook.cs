@@ -157,8 +157,8 @@ public sealed partial class Workbook
     /// Multi-sheet loader entry (CR1.5, D-52; for the v2 file loader): builds a workbook with <paramref name="sheets"/>
     /// in order, each holding its (unqualified address, input) pairs, and <paramref name="activeSheet"/> active (matched
     /// case-insensitively, R86). Everything is validated before anything is built; then one full recalculation runs. No
-    /// event; clean, with an empty undo history. Names are bound to the first sheet (ruling P5-1, until names are
-    /// qualified, R77).
+    /// event; clean, with an empty undo history. Names are stored qualified (CR1.4, R77): a qualified refersTo must name
+    /// one of <paramref name="sheets"/>, and an unqualified one (a version 1 file) is qualified with the first sheet.
     /// </summary>
     /// <exception cref="ArgumentException">No sheets or more than 255, an invalid or duplicate (case-insensitive) sheet
     /// name, an unknown active sheet, an invalid or qualified cell address, a duplicate address within a sheet, an
@@ -184,7 +184,10 @@ public sealed partial class Workbook
             sheetNames[s] = name;
         }
         if (active < 0) throw new ArgumentException($"Unknown active sheet '{activeSheet}'.", nameof(activeSheet));
-        var loadedNames = ValidateLoadedNames(names);
+        // The sheets exist before the names are validated, so a qualified refersTo can be checked against them (R77);
+        // the workbook is not returned on failure, so nothing escapes (atomic).
+        var wb = new Workbook(functions, sheetNames);
+        var loadedNames = wb.ValidateLoadedNames(names);
 
         var validated = new List<(int Key, string Input)>[sheets.Count];
         for (int s = 0; s < sheets.Count; s++)
@@ -202,7 +205,6 @@ public sealed partial class Workbook
             }
         }
 
-        var wb = new Workbook(functions, sheetNames);
         wb._active = wb._sheets[active];
         foreach (var definition in loadedNames) wb.SetNameEntry(definition.Name, CreateNameEntry(definition));
         for (int s = 0; s < sheets.Count; s++)
@@ -396,7 +398,7 @@ public sealed partial class Workbook
         public bool TryResolveName(string name, out NameTarget target)
         {
             if (!owner._names.TryGetValue(name, out var e)) { target = default; return false; }
-            // Ruling P5-1: an unqualified refersTo lies on the sheet that was active when the name was defined.
+            // R77: the target lies on the sheet its qualified refersTo names, bound by stable id (rename-safe).
             target = owner._sheetsById.TryGetValue(e.Definition.Sheet, out var on)
                 ? e.Target with { Sheet = on.Name }
                 : NameTarget.Invalid;
@@ -406,7 +408,7 @@ public sealed partial class Workbook
         public CellValue GetValue(CellAddress address) =>
             sheet.Cells.TryGetValue(CellKey.Pack(address), out var e) ? e.Value : CellValue.Blank;
 
-        public ICellValueProvider? ResolveSheet(string name) =>
+        ICellValueProvider? ICellValueProvider.ResolveSheet(string name) =>
             owner._sheetsByName.TryGetValue(name, out var other) ? other.Target : null;
 
         public bool TryGetFormula(CellAddress address, [NotNullWhen(true)] out ParsedFormula? formula)

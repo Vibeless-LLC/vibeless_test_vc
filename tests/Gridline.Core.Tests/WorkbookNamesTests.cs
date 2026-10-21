@@ -57,7 +57,7 @@ public class WorkbookNamesTests
     {
         var wb = new Workbook();
         wb.DefineName(name, "$A$1");
-        Assert.Equal([P(name, "$A$1")], wb.GetNames());
+        Assert.Equal([P(name, "Sheet1!$A$1")], wb.GetNames());
     }
 
     [Fact]
@@ -108,9 +108,9 @@ public class WorkbookNamesTests
         var wb = new Workbook();
         wb.DefineName("Rate", "$A$1");
         wb.DefineName("RATE", "$B$2");
-        Assert.Equal([P("RATE", "$B$2")], wb.GetNames());
+        Assert.Equal([P("RATE", "Sheet1!$B$2")], wb.GetNames());
         wb.DefineName("rate", "$B$2"); // casing-only change is a change (R60)
-        Assert.Equal([P("rate", "$B$2")], wb.GetNames());
+        Assert.Equal([P("rate", "Sheet1!$B$2")], wb.GetNames());
     }
 
     [Fact]
@@ -126,13 +126,13 @@ public class WorkbookNamesTests
     // ---- refersTo (§9.6, R58, R59) ----
 
     [Theory]
-    [InlineData("$B$1", "$B$1")]
-    [InlineData("$a$1", "$A$1")]
-    [InlineData("$zz$100000", "$ZZ$100000")]
-    [InlineData("$A$1:$C$10", "$A$1:$C$10")]
-    [InlineData("$C$10:$A$1", "$A$1:$C$10")]
-    [InlineData("$c$1:$a$10", "$A$1:$C$10")] // corners normalised top-left:bottom-right
-    [InlineData("$A$1:$A$1", "$A$1:$A$1")]   // stays a range
+    [InlineData("$B$1", "Sheet1!$B$1")] // qualified with the active sheet (CR1.4, R77)
+    [InlineData("$a$1", "Sheet1!$A$1")]
+    [InlineData("$zz$100000", "Sheet1!$ZZ$100000")]
+    [InlineData("$A$1:$C$10", "Sheet1!$A$1:$C$10")]
+    [InlineData("$C$10:$A$1", "Sheet1!$A$1:$C$10")]
+    [InlineData("$c$1:$a$10", "Sheet1!$A$1:$C$10")] // corners normalised top-left:bottom-right
+    [InlineData("$A$1:$A$1", "Sheet1!$A$1:$A$1")]   // stays a range
     public void RefersTo_IsNormalisedToCanonicalUppercase(string refersTo, string stored)
     {
         var wb = new Workbook();
@@ -170,7 +170,7 @@ public class WorkbookNamesTests
         var log = new EventLog(wb);
         var ex = Assert.Throws<ArgumentException>(() => wb.DefineName("Rate", refersTo));
         Assert.Equal("refersTo", ex.ParamName);
-        Assert.Equal([P("Rate", "$A$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$A$1")], wb.GetNames());
         Assert.Empty(log.Events);
         wb.Undo();
         Assert.False(wb.CanUndo); // only the original definition was recorded
@@ -191,7 +191,7 @@ public class WorkbookNamesTests
         string[] expected = ["beta", "_z", "Alpha", "ALPHA2", "a.b"];
         Array.Sort(expected, StringComparer.OrdinalIgnoreCase);
         Assert.Equal(expected, names.Select(p => p.Key));
-        Assert.Equal("$A$3:$B$4", names.Single(p => p.Key == "Alpha").Value);
+        Assert.Equal("Sheet1!$A$3:$B$4", names.Single(p => p.Key == "Alpha").Value);
 
         wb.DeleteName("beta");
         Assert.Equal(5, names.Count);
@@ -438,7 +438,7 @@ public class WorkbookNamesTests
         Assert.Equal(N(20), wb.GetValue("A1"));
         Assert.True(wb.Undo());
         Assert.Equal(s1, wb.GetNames());
-        Assert.Equal([P("rate", "$B$1")], wb.GetNames());
+        Assert.Equal([P("rate", "Sheet1!$B$1")], wb.GetNames());
         Assert.Equal(N(10), wb.GetValue("A1"));
         Assert.True(wb.Undo());
         Assert.Equal(s0, wb.GetNames());
@@ -505,9 +505,9 @@ public class WorkbookNamesTests
         Assert.True(wb.IsDirty);
         Assert.Equal(0, wb.LastRecalc.EvaluatedFormulaCount);
         Assert.Empty(log.Events);
-        Assert.Equal([P("RATE", "$B$1")], wb.GetNames());
+        Assert.Equal([P("RATE", "Sheet1!$B$1")], wb.GetNames());
         wb.Undo();
-        Assert.Equal([P("Rate", "$B$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$B$1")], wb.GetNames());
         Assert.False(wb.IsDirty);
     }
 
@@ -532,7 +532,7 @@ public class WorkbookNamesTests
         wb.Undo();
         wb.DefineName("b", "$A$1");
         Assert.False(wb.CanRedo);
-        Assert.Equal([P("b", "$A$1")], wb.GetNames());
+        Assert.Equal([P("b", "Sheet1!$A$1")], wb.GetNames());
     }
 
     // ---- Atomicity (§9.2) ----
@@ -552,7 +552,7 @@ public class WorkbookNamesTests
         wb.DefineName("Other", "$B$2"); // no dependents, nothing evaluated: succeeds while armed
         functions.Armed = false;
 
-        Assert.Equal([P("Other", "$B$2"), P("Rate", "$B$1")], wb.GetNames());
+        Assert.Equal([P("Other", "Sheet1!$B$2"), P("Rate", "Sheet1!$B$1")], wb.GetNames());
         Assert.Equal(N(5), wb.GetValue("A1"));
         Assert.Equal(N(10), wb.GetValue("A2"));
         Assert.Empty(log.Events);
@@ -573,7 +573,7 @@ public class WorkbookNamesTests
         functions.Armed = true;
         Assert.Throws<InvalidOperationException>(() => wb.Undo());
         functions.Armed = false;
-        Assert.Equal([P("Rate", "$B$1")], wb.GetNames());
+        Assert.Equal([P("Rate", "Sheet1!$B$1")], wb.GetNames());
         Assert.True(wb.CanUndo);
         Assert.False(wb.CanRedo);
 

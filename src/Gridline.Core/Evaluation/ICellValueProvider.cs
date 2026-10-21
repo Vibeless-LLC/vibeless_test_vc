@@ -18,6 +18,7 @@ public interface ICellValueProvider
     /// <summary>
     /// The provider of the sheet named <paramref name="sheet"/> (matched case-insensitively, R82), which may be this
     /// provider; null when no such sheet exists, so a reference to it evaluates to #REF!. The default knows no sheets.
+    /// Internal (D-53): only the Workbook's own targets know other sheets, so the public surface stays §9.1 + CR1.3.
     /// </summary>
-    ICellValueProvider? ResolveSheet(string sheet) => null;
+    internal ICellValueProvider? ResolveSheet(string sheet) => null;
 }

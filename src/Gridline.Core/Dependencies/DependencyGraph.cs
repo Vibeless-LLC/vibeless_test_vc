@@ -58,12 +58,14 @@ public sealed class DependencyGraph
     /// <summary>Number of formula cells (failed parses included), on every sheet.</summary>
     public int FormulaCount => _formulas.Count;
 
+    /// <summary>True when the cell at <paramref name="address"/> is a formula cell. The address is on the
+    /// first-created sheet (internal sheet id 0, D-52, D-53); cells of other sheets are not visible here.</summary>
     public bool IsFormulaCell(CellAddress address) => _formulas.ContainsKey(SheetCellKey.Pack(0, address));
 
     /// <summary>
     /// Replaces the precedent edges of the cell at <paramref name="address"/> (§6.1). A non-null formula (even a
     /// failed parse, which has no precedents) makes it a formula cell; null means it is now a constant or blank.
-    /// Call this for every edit before <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>.
+    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53). Call this for every edit before <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>.
     /// </summary>
     public void SetFormula(CellAddress address, ParsedFormula? formula) => SetFormula(0, address, formula);
 
@@ -95,11 +97,14 @@ public sealed class DependencyGraph
         foreach (long key in users) AddEdges(key, _formulas[key]);
     }
 
-    /// <summary>The recorded precedents of a formula cell; <see cref="FormulaPrecedents.Empty"/> for any other cell.</summary>
+    /// <summary>The recorded precedents of a formula cell; <see cref="FormulaPrecedents.Empty"/> for any other cell.
+    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53).</summary>
     public FormulaPrecedents GetPrecedents(CellAddress address) =>
         _formulas.TryGetValue(SheetCellKey.Pack(0, address), out var p) ? p : FormulaPrecedents.Empty;
 
-    /// <summary>The distinct formula cells that reference <paramref name="address"/> directly or through a range.</summary>
+    /// <summary>The distinct formula cells that reference <paramref name="address"/> directly or through a range. The
+    /// address is on the first-created sheet (internal sheet id 0, D-52, D-53); dependents on any sheet are returned
+    /// with their sheet dropped, so addresses from different sheets can coincide.</summary>
     public IReadOnlyCollection<CellAddress> GetDependents(CellAddress address)
     {
         var keys = new List<long>();
@@ -109,7 +114,8 @@ public sealed class DependencyGraph
         return result;
     }
 
-    /// <summary>The formula cells whose text references the name (case-insensitive, R20). Names are definable from Phase 4.</summary>
+    /// <summary>The formula cells whose text references the name (case-insensitive, R20). Names are definable from Phase 4.
+    /// Dependents on any sheet are returned with their sheet dropped (internal sheet binding, D-52, D-53).</summary>
     public IReadOnlyCollection<CellAddress> GetNameDependents(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -126,6 +132,7 @@ public sealed class DependencyGraph
     /// <paramref name="target"/> (R22), so downstream cells see #CIRC! as an ordinary error.
     /// Edges must already reflect the edit (<see cref="SetFormula(CellAddress, ParsedFormula?)"/>).
     /// </summary>
+    /// <remarks>The <paramref name="changed"/> addresses are on the first-created sheet (internal sheet id 0, D-52, D-53).</remarks>
     /// <exception cref="InvalidOperationException">An affected formula cell has no formula in the target; thrown before any value is written.</exception>
     public RecalcResult Recalculate(IReadOnlyCollection<CellAddress> changed, IRecalcTarget target, IFunctionResolver? functions)
     {
@@ -138,7 +145,8 @@ public sealed class DependencyGraph
     /// As <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>, with
     /// <paramref name="changedNames"/> also seeding the affected set: each formula that references a changed name
     /// (defined, redefined or deleted, §9.6) and all its transitive dependents. Only those re-evaluate (§6.7). Name
-    /// targets must already be updated (<see cref="SetNameTarget(string, CellRange?)"/>).
+    /// targets must already be updated (<see cref="SetNameTarget(string, CellRange?)"/>). The <paramref name="changed"/>
+    /// addresses are on the first-created sheet (internal sheet id 0, D-52, D-53).
     /// </summary>
     public RecalcResult Recalculate(IReadOnlyCollection<CellAddress> changed, IReadOnlyCollection<string> changedNames,
         IRecalcTarget target, IFunctionResolver? functions)
@@ -206,6 +214,7 @@ public sealed class DependencyGraph
     /// then depends on each cell of <paramref name="target"/>. Null means the name is undefined or its target was
     /// deleted (#REF!): it has no target cells. Idempotent. The formulas that reference the name are already known from
     /// their text (<see cref="SetFormula(CellAddress, ParsedFormula?)"/>), defined or not, so defining a name later resolves them.
+    /// The target is on the first-created sheet (internal sheet id 0, D-52, D-53).
     /// </summary>
     public void SetNameTarget(string name, CellRange? target) => SetNameTarget(name, 0, target);
 

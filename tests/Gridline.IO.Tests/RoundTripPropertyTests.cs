@@ -118,7 +118,8 @@ public class RoundTripPropertyTests
                 }
                 else if (!live.GetValue(u.Address).Equals(back.GetValue(u.Address))) return false;
             }
-            var expectedNames = order.Select(n => new KeyValuePair<string, string>(n, distinct[n]));
+            // Loaded names are qualified with the only sheet (CR1.4, R77); #REF! stays as it is (R59).
+            var expectedNames = order.Select(n => new KeyValuePair<string, string>(n, distinct[n] == "#REF!" ? "#REF!" : "Sheet1!" + distinct[n]));
             if (!expectedNames.SequenceEqual(back.GetNames())) return false;
             // Without #REF! names the live workbook is equivalent, so every loaded value must match it.
             bool anyDeleted = order.Any(n => distinct[n] == "#REF!");

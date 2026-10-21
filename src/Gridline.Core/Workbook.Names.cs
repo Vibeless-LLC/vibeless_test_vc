@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Gridline.Core.Addressing;
 using Gridline.Core.Commands;
 using Gridline.Core.Evaluation;
 using Gridline.Core.Parsing;
@@ -24,29 +25,29 @@ public sealed partial class Workbook
     private readonly Dictionary<string, NameEntry> _names = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Defines <paramref name="name"/> or replaces its definition, keeping the new casing (§9.6); one undo step (§9.3).
-    /// Dependents of the name recalculate; a formula that showed #NAME? for it now resolves. Redefining with the same
-    /// casing and the same canonical refersTo is a no-op with no step and no event (R60); a casing-only change is a
-    /// step. <see cref="CellsChanged"/> carries every address whose value changed and is not raised when none did.
-    /// Formula inputs are never rewritten (R60).
+    /// Defines <paramref name="name"/> or replaces its definition, keeping the new casing (§9.6, CR1.4); one undo step
+    /// (§9.3). Names are workbook-scoped and their refersTo is always sheet-qualified (R77): an unqualified refersTo is
+    /// qualified with the active sheet. Dependents of the name recalculate; a formula that showed #NAME? for it now
+    /// resolves. Redefining with the same casing and the same canonical (qualified) refersTo is a no-op with no step
+    /// and no event (R60); a casing-only change is a step. <see cref="CellsChanged"/> carries every address whose value
+    /// changed and is not raised when none did. Formula inputs are never rewritten (R60).
     /// </summary>
-    /// <param name="refersTo">A fully absolute cell or range such as <c>$B$1</c> or <c>$A$1:$C$10</c>, any casing; stored
-    /// uppercase with corners normalised (R58).</param>
-    /// <exception cref="ArgumentException">The name breaks a §9.6 syntax rule, or refersTo is not a fully absolute cell
-    /// or range (including <c>#REF!</c>, R59); null arguments throw <see cref="ArgumentNullException"/>. Nothing changes.</exception>
+    /// <param name="refersTo">A fully absolute cell or range, optionally sheet-qualified, such as <c>$B$1</c>,
+    /// <c>Data!$A$1:$C$10</c> or <c>'My Sheet'!$B$2</c>, any casing. Stored as <c>Sheet!cells</c>: the sheet in its
+    /// defined casing, quoted only when required (CR1.2), the cell part uppercase with corners normalised (R58).</param>
+    /// <exception cref="ArgumentException">The name breaks a §9.6 syntax rule, refersTo is not a fully absolute cell or
+    /// range (including <c>#REF!</c>, R59), or its sheet prefix is malformed or names no existing sheet (R77); null
+    /// arguments throw <see cref="ArgumentNullException"/>. Nothing changes.</exception>
     public void DefineName(string name, string refersTo)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(refersTo);
         if (!NameSyntax.IsValidName(name))
             throw new ArgumentException($"Invalid name '{Clip(name)}': a name matches [A-Za-z_][A-Za-z0-9_.]{{0,254}}, is not TRUE or FALSE, and does not look like a cell reference.", nameof(name));
-        if (!NameSyntax.TryParseRefersTo(refersTo, allowDeleted: false, out string canonical, out _))
-            throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}': expected a fully absolute cell or range such as $B$1 or $A$1:$C$10.", nameof(refersTo));
+        var after = Qualify(name, refersTo, _active, allowDeleted: false, nameof(refersTo));
 
         NameDefinition? before = _names.TryGetValue(name, out var current) ? current.Definition : null;
-        // Ruling P5-1 (D-52): the unqualified target lies on the active sheet; the binding is part of the definition.
-        var after = new NameDefinition(name, canonical) { Sheet = _active.Id };
-        if (before == after) // ordinal on both: same casing, same canonical refersTo and same sheet (R60)
+        if (before == after) // ordinal on both: same casing and same canonical qualified refersTo (R60, R77)
         {
             LastRecalc = default;
             return;
@@ -66,7 +67,8 @@ public sealed partial class Workbook
     }
 
     /// <summary>Every defined name in its definition casing with its stored refersTo, sorted by name with
-    /// <see cref="StringComparer.OrdinalIgnoreCase"/> (§9.1, §9.6). A snapshot; later changes do not affect it.</summary>
+    /// <see cref="StringComparer.OrdinalIgnoreCase"/> (§9.1, §9.6). Each refersTo is sheet-qualified
+    /// (<c>Sheet1!$B$1</c>, CR1.4, R77) or <c>#REF!</c> (R59). A snapshot; later changes do not affect it.</summary>
     public IReadOnlyList<KeyValuePair<string, string>> GetNames()
     {
         var result = new KeyValuePair<string, string>[_names.Count];
@@ -76,11 +78,37 @@ public sealed partial class Workbook
         return Array.AsReadOnly(result);
     }
 
-    /// <summary>Builds the entry for a stored definition. Stored refersTo values are canonical (validated on the way
-    /// in), and <c>#REF!</c> is accepted here because the internal model can hold a deleted target (ruling P1).</summary>
+    /// <summary>
+    /// The qualified definition of <paramref name="name"/> → <paramref name="refersTo"/> (CR1.4, R77, R58): an
+    /// unqualified refersTo lies on <paramref name="defaultSheet"/>; a prefix (R82 rules, matched case-insensitively)
+    /// must name an existing sheet. The stored text is the sheet's <see cref="Sheet.Prefix"/> (defined casing, quoted
+    /// only when required) followed by the canonical cell part. With <paramref name="allowDeleted"/> the exact string
+    /// <c>#REF!</c> is accepted as a deleted target (R59, loader only) and bound to <paramref name="defaultSheet"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">refersTo is invalid or names an unknown sheet.</exception>
+    private NameDefinition Qualify(string name, string refersTo, Sheet defaultSheet, bool allowDeleted, string paramName)
+    {
+        if (allowDeleted && string.Equals(refersTo, NameSyntax.DeletedTarget, StringComparison.Ordinal))
+            return new NameDefinition(name, NameSyntax.DeletedTarget) { Sheet = defaultSheet.Id };
+        if (!SheetName.TrySplitQualified(refersTo, out string? sheetName, out string cells)
+            || !NameSyntax.TryParseRefersTo(cells, allowDeleted: false, out string canonical, out _))
+            throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}' for name '{Clip(name)}': expected a fully absolute cell or range, optionally sheet-qualified, such as $B$1, $A$1:$C$10 or Data!$A$1:$A$10.", paramName);
+        var sheet = defaultSheet;
+        if (sheetName is not null && !_sheetsByName.TryGetValue(sheetName, out sheet))
+            throw new ArgumentException($"Invalid refersTo '{Clip(refersTo)}' for name '{Clip(name)}': there is no sheet named '{Clip(sheetName)}'.", paramName);
+        return new NameDefinition(name, sheet.Prefix + canonical) { Sheet = sheet.Id };
+    }
+
+    /// <summary>Builds the entry for a stored definition. Stored refersTo values are canonical and qualified (validated
+    /// on the way in, R77); the target's sheet is <see cref="NameDefinition.Sheet"/>, so the prefix text is not looked
+    /// up again. <c>#REF!</c> is accepted here because the internal model can hold a deleted target (ruling P1).</summary>
     private static NameEntry CreateNameEntry(NameDefinition definition)
     {
-        if (!NameSyntax.TryParseRefersTo(definition.RefersTo, allowDeleted: true, out _, out var target))
+        string cells = definition.RefersTo;
+        if (!string.Equals(cells, NameSyntax.DeletedTarget, StringComparison.Ordinal)
+            && (!SheetName.TrySplitQualified(cells, out string? sheet, out cells) || sheet is null))
+            throw new InvalidOperationException($"Stored refersTo '{definition.RefersTo}' of name '{definition.Name}' is not qualified.");
+        if (!NameSyntax.TryParseRefersTo(cells, allowDeleted: true, out _, out var target))
             throw new InvalidOperationException($"Stored refersTo '{definition.RefersTo}' of name '{definition.Name}' is invalid.");
         return new NameEntry(definition, target);
     }
@@ -97,10 +125,11 @@ public sealed partial class Workbook
     }
 
     /// <summary>Validates the names of a loaded file with the DefineName rules (§9.6): syntax, refersTo (normalised to
-    /// the canonical form, R58, so <c>$b$1</c> loads as <c>$B$1</c>), the exact string <c>#REF!</c> (R59), and no
-    /// case-insensitive duplicates. Builds nothing.</summary>
-    /// <exception cref="ArgumentException">Any name or refersTo is invalid, or two names collide.</exception>
-    private static List<NameDefinition> ValidateLoadedNames(IEnumerable<KeyValuePair<string, string>> names)
+    /// the canonical qualified form, R58, R77, so <c>$b$1</c> loads as <c>Sheet1!$B$1</c>), the exact string
+    /// <c>#REF!</c> (R59), and no case-insensitive duplicates. An unqualified refersTo (a version 1 file) is qualified
+    /// with the first sheet (CR1.5 migration); a qualified one must name a sheet of this workbook. Changes nothing.</summary>
+    /// <exception cref="ArgumentException">Any name or refersTo is invalid, names an unknown sheet, or two names collide.</exception>
+    private List<NameDefinition> ValidateLoadedNames(IEnumerable<KeyValuePair<string, string>> names)
     {
         var result = new List<NameDefinition>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -108,11 +137,12 @@ public sealed partial class Workbook
         {
             if (name is null || !NameSyntax.IsValidName(name))
                 throw new ArgumentException($"Invalid name '{Clip(name ?? "")}'.", nameof(names));
-            if (refersTo is null || !NameSyntax.TryParseRefersTo(refersTo, allowDeleted: true, out string canonical, out _))
-                throw new ArgumentException($"Invalid refersTo '{Clip(refersTo ?? "")}' for name '{Clip(name)}'.", nameof(names));
+            if (refersTo is null)
+                throw new ArgumentException($"Invalid refersTo '' for name '{Clip(name)}'.", nameof(names));
+            var definition = Qualify(name, refersTo, _sheets[0], allowDeleted: true, nameof(names));
             if (!seen.Add(name))
                 throw new ArgumentException($"Duplicate name '{Clip(name)}'.", nameof(names));
-            result.Add(new NameDefinition(name, canonical));
+            result.Add(definition);
         }
         return result;
     }

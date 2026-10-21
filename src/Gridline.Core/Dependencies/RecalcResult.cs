@@ -24,7 +24,8 @@ public sealed class RecalcResult
     /// <summary>
     /// Formula cells whose value differs from the value they held before this recalc, in evaluation order, each once.
     /// The caller's directly edited constant cells are not included (the graph does not see constant values change).
-    /// With several sheets this lists the addresses without their sheet; see <see cref="ChangedKeys"/>.
+    /// Each address drops the internal sheet binding (D-52, D-53): with several sheets, cells of different sheets are
+    /// listed without their sheet and may coincide; see the internal <see cref="ChangedKeys"/>.
     /// </summary>
     public IReadOnlyList<CellAddress> ChangedCells
     {

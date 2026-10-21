@@ -7,7 +7,7 @@ namespace Gridline.Core.Tests;
 // Requirement IDs: CR1.1 (sheet list, names, 255 limit), CR1.2 (qualified references evaluate against their sheet,
 // missing sheet #REF!), CR1.3 (SheetNames, ActiveSheet, AddSheet, qualified API addresses, GetUsedAddresses), CR1.10
 // (single sheet unchanged), §6.7 (cross-sheet cycles, incremental recalc, no recursion), §9.2 (atomicity, CellsChanged),
-// §9.3 (AddSheet undo/redo), R78, R80, R81, R82, R83, R84 (ruling P5-2), ruling P5-1 (names bound to the active sheet).
+// §9.3 (AddSheet undo/redo), R78, R80, R81, R82, R83, R84 (ruling P5-2), R77 (names qualified with the active sheet; see WorkbookQualifiedNamesTests).
 public class WorkbookSheetsTests
 {
     private static CellValue N(double d) => CellValue.FromNumber(d);
@@ -603,7 +603,7 @@ public class WorkbookSheetsTests
         Assert.Equal("Sheet1", wb.ActiveSheet);
     }
 
-    // ---- Names bound to the active sheet (ruling P5-1) ----
+    // ---- Names qualified with the active sheet (CR1.4, R77) ----
 
     [Fact]
     public void Name_IsBoundToTheSheetActiveWhenDefined()
@@ -618,7 +618,7 @@ public class WorkbookSheetsTests
         wb.SetCell("A2", "=SUM(Rate)");
         Assert.Equal(N(14), wb.GetValue("A1"));
         Assert.Equal(N(7), wb.GetValue("A2"));
-        Assert.Equal([new KeyValuePair<string, string>("Rate", "$B$1")], wb.GetNames()); // unqualified until R77 (Task 3)
+        Assert.Equal([new KeyValuePair<string, string>("Rate", "Data!$B$1")], wb.GetNames());
         wb.SetCell("Data!B1", "8");
         Assert.Equal(N(16), wb.GetValue("A1"));
         wb.SetCell("B1", "100"); // Sheet1!B1 is not the name's target
@@ -708,7 +708,7 @@ public class WorkbookSheetsTests
         wb.DefineName("OnData", "$B$1");
         wb.InsertColumns(1, 1);
         Assert.Equal(
-            [new KeyValuePair<string, string>("OnData", "$C$1"), new("OnSheet1", "$B$1")],
+            [new KeyValuePair<string, string>("OnData", "Data!$C$1"), new("OnSheet1", "Sheet1!$B$1")],
             wb.GetNames());
     }
 
@@ -768,7 +768,7 @@ public class WorkbookSheetsTests
         Assert.False(wb.CanUndo);
         Assert.False(wb.IsDirty);
         Assert.Equal(2, wb.LastRecalc.EvaluatedFormulaCount);
-        wb.SetCell("Data!C1", "=Rate"); // names bind to the first sheet (P5-1)
+        wb.SetCell("Data!C1", "=Rate"); // an unqualified loaded name is qualified with the first sheet (CR1.5, R77)
         Assert.Equal(N(2), wb.GetValue("Data!C1"));
     }
 

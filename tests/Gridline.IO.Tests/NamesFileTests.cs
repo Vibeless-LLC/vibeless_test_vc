@@ -3,7 +3,7 @@ using Gridline.Core;
 
 namespace Gridline.IO.Tests;
 
-/// <summary>Names in the .gridline format (§8.1, §8.2, §9.6, R58, R59).</summary>
+/// <summary>Names in the .gridline format (§8.1, §8.2, §9.6, R58, R59; CR1.4, R77 qualified in the workbook).</summary>
 public class NamesFileTests
 {
     private static Workbook Load(string json) => GridlineSerializer.Deserialize(Encoding.UTF8.GetBytes(json));
@@ -79,10 +79,30 @@ public class NamesFileTests
     public void Load_NonCanonicalRefersTo_LoadsNormalised_ResavesCanonical()
     {
         var wb = Load(Doc("{\"a\":\"$b$1\",\"B\":\"$C$10:$A$1\"}"));
-        Assert.Equal(new[] { "$B$1", "$A$1:$C$10" }, wb.GetNames().Select(n => n.Value).ToArray());
+        Assert.Equal(new[] { "Sheet1!$B$1", "Sheet1!$A$1:$C$10" }, wb.GetNames().Select(n => n.Value).ToArray());
         var text = Encoding.UTF8.GetString(GridlineSerializer.Serialize(wb));
         Assert.Contains("\"a\": \"$B$1\"", text);
         Assert.Contains("\"B\": \"$A$1:$C$10\"", text);
+    }
+
+    // Interim bridge until the version 2 writer (CR1.5, D-53): the workbook holds qualified names (R77); a one-sheet
+    // version 1 file stores them unqualified and the loader qualifies them again with the first sheet.
+    [Fact]
+    public void QualifiedName_SavesUnqualifiedInVersion1_AndReloadsQualified()
+    {
+        var wb = new Workbook();
+        wb.SetCell("B1", "4");
+        wb.SetCell("A1", "=Rate*2");
+        wb.DefineName("Rate", "sheet1!$b$1");
+        wb.DefineName("Total", "$A$1:$A$3");
+        Assert.Equal("Sheet1!$B$1", wb.GetNames()[0].Value);
+        var bytes = GridlineSerializer.Serialize(wb);
+        var text = Encoding.UTF8.GetString(bytes);
+        Assert.Contains("    \"Rate\": \"$B$1\",\n    \"Total\": \"$A$1:$A$3\"\n", text);
+        var back = GridlineSerializer.Deserialize(bytes);
+        Assert.Equal(wb.GetNames(), back.GetNames());
+        Assert.Equal(8.0, back.GetValue("A1").Number);
+        Assert.Equal(bytes, GridlineSerializer.Serialize(back));
     }
 
     [Fact]
