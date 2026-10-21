@@ -181,7 +181,8 @@ internal static class StrictLoader
         }
 
         // Version 2 (CR1.5, R86): "format", "version", "activeSheet" and "sheets" are required; a missing "names" is
-        // empty (R54). A top-level "cells" is not a version 2 key, so it is ignored like any unknown key.
+        // empty (R54). A top-level "cells" is a version 1 key and is rejected, as R86 rejects "activeSheet"/"sheets" in v1.
+        if (hasCells) throw Fail("a version 2 file cannot contain a top-level \"cells\".");
         if (!hasActiveSheet) throw Fail("\"activeSheet\" is missing.");
         if (activeSheet is null) throw Fail("\"activeSheet\" must be a string.");
         if (!hasSheets) throw Fail("\"sheets\" is missing.");

@@ -199,6 +199,14 @@ public class FormatVersion2Tests
     [Fact] public void Version1_WithActiveSheet_IsRejected() =>
         Bad("{\"format\":\"gridline\",\"version\":1,\"activeSheet\":\"Sheet1\",\"names\":{},\"cells\":[]}");
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{\"not\":\"an array\"}")]
+    [InlineData("null")]
+    public void Version2_WithTopLevelCells_IsRejected(string cells) =>
+        Bad("{\"format\":\"gridline\",\"version\":2,\"activeSheet\":\"Sheet1\",\"names\":{},\"cells\":" + cells
+            + ",\"sheets\":[{\"name\":\"Sheet1\",\"cells\":[]}]}");
+
     [Fact] public void Version1_WithSheets_IsRejected() =>
         Bad("{\"format\":\"gridline\",\"version\":1,\"names\":{},\"sheets\":[{\"name\":\"Sheet1\",\"cells\":[]}]}");
 
@@ -240,10 +248,10 @@ public class FormatVersion2Tests
     // ---- Accepted variations (§8.2: any whitespace, key order, unknown keys; R54, R86) ----
 
     [Fact]
-    public void AnyKeyOrder_UnknownKeys_AndAVersion1CellsKey_AreIgnored()
+    public void AnyKeyOrder_AndUnknownKeys_AreIgnored()
     {
         var wb = Load("{\"sheets\":[{\"x\":{\"y\":[1]},\"cells\":[[\"B2\",\"7\"]],\"name\":\"Data\"}],\"extra\":null,"
-            + "\"cells\":{\"not\":\"an array\"},\"names\":{\"R\":\"data!$b$2\"},\"activeSheet\":\"DATA\",\"version\":2,\"format\":\"gridline\"}");
+            + "\"names\":{\"R\":\"data!$b$2\"},\"activeSheet\":\"DATA\",\"version\":2,\"format\":\"gridline\"}");
         Assert.Equal(new[] { "Data" }, wb.SheetNames);
         Assert.Equal("Data", wb.ActiveSheet); // matched case-insensitively, stored in the defined casing (R86, R80)
         Assert.Equal("Data!$B$2", Assert.Single(wb.GetNames()).Value);
