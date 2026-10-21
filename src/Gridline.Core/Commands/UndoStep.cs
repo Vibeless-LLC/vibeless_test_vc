@@ -13,7 +13,9 @@ namespace Gridline.Core.Commands;
 /// and no cell edits; the names payload is a list so a later structure edit (§9.5), which may adjust several name
 /// targets at once, records them in the same shape. Insert/delete rows/columns steps (§9.5) carry a
 /// <see cref="StructureEdit"/> whole-sheet restructure payload, the names it adjusted, and no cell edits. An AddSheet step
-/// (CR1.3) carries a <see cref="Commands.SheetInsert"/> and the cells that fill the new sheet (none for AddSheet). Every
+/// (CR1.3) carries a <see cref="Commands.SheetInsert"/> and the cells that fill the new sheet (none for AddSheet). A
+/// RenameSheet, DeleteSheet or MoveSheet step carries a <see cref="Commands.SheetChange"/>, the formulas it rewrote as
+/// cell edits, and the names it rewrote (D-54). Every
 /// cell edit names its sheet by stable internal id (<see cref="CellEdit"/>, D-52). The history
 /// (<see cref="UndoHistory"/>) treats steps as opaque, so it needs no change. See DECISIONS.md D-34, D-41 and D-43.
 /// </remarks>
@@ -82,6 +84,29 @@ public sealed class UndoStep
         SheetInsert = sheet;
     }
 
+    /// <summary>A step that renames, deletes or moves an existing sheet (CR1.3, D-54): <paramref name="rewrites"/> are the
+    /// formulas it rewrote, none on a deleted sheet; <paramref name="nameEdits"/> the names it rewrote.</summary>
+    /// <exception cref="ArgumentException">An address or name appears twice, a rewrite lies on the deleted sheet, a
+    /// removed cell does not, or a non-delete change carries removed cells.</exception>
+    internal UndoStep(SheetChange change, ImmutableArray<CellEdit> rewrites, ImmutableArray<NameEdit> nameEdits)
+        : this(rewrites, nameEdits)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (change.Removed.IsDefault) throw new ArgumentNullException(nameof(change), "Removed is default.");
+        RequireDistinct(change.Removed, nameof(change));
+        bool delete = change.Kind == SheetChangeKind.Delete;
+        if (!delete && change.Removed.Length > 0)
+            throw new ArgumentException("Only a sheet deletion removes cells.", nameof(change));
+        foreach (var edit in change.Removed)
+            if (edit.Sheet != change.Id)
+                throw new ArgumentException($"Removed cell {edit.Address} is not on the deleted sheet.", nameof(change));
+        if (delete)
+            foreach (var edit in rewrites)
+                if (edit.Sheet == change.Id)
+                    throw new ArgumentException($"Rewritten cell {edit.Address} lies on the deleted sheet.", nameof(rewrites));
+        SheetChange = change;
+    }
+
     private static void RequireDistinct(ImmutableArray<CellEdit> edits, string paramName)
     {
         var seen = new HashSet<(int, CellAddress)>(edits.Length);
@@ -102,4 +127,8 @@ public sealed class UndoStep
 
     /// <summary>The sheet this step creates (CR1.3, D-52); null for every other step.</summary>
     internal SheetInsert? SheetInsert { get; }
+
+    /// <summary>The sheet this step renames, deletes or moves (CR1.3, D-54); null for every other step. When set,
+    /// <see cref="CellEdits"/> holds the rewritten formulas.</summary>
+    internal SheetChange? SheetChange { get; }
 }

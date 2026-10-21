@@ -7,7 +7,7 @@ using Gridline.Core.Parsing;
 namespace Gridline.Core;
 
 // Multiple sheets (CR1.1, CR1.3, D-52): the sheet list, the active sheet, AddSheet and its undo step (SheetInsert), and
-// the sheet casing resolver for canonical printing (R82). Rename, delete and move come later (CR1.3).
+// the sheet casing resolver for canonical printing (R82). Rename, delete and move are in Workbook.SheetChanges.cs (D-54).
 public sealed partial class Workbook
 {
     /// <summary>The sheet names in order, each in its defined casing (CR1.3). A snapshot; later changes do not affect it.</summary>
@@ -77,19 +77,41 @@ public sealed partial class Workbook
 
     /// <summary>Puts <paramref name="sheet"/> at <paramref name="index"/> in the order, registers it and binds its name in
     /// the dependency graph (formulas that name it re-resolve their edges; the caller recalculates them).</summary>
+    /// <remarks>Atomic: the index is checked first, the lookups and the binding are added before the list insert (which
+    /// cannot then fail), and a failure part-way removes what was added (D-54).</remarks>
     private void InsertSheet(Sheet sheet, int index)
     {
-        _sheets.Insert(index, sheet);
+        if (index < 0 || index > _sheets.Count)
+            throw new InvalidOperationException($"Sheet index {index} is outside 0..{_sheets.Count}.");
         _sheetsById.Add(sheet.Id, sheet);
-        _sheetsByName.Add(sheet.Name, sheet);
-        _graph.SetSheet(sheet.Name, sheet.Id);
+        try
+        {
+            _sheetsByName.Add(sheet.Name, sheet);
+            try
+            {
+                _graph.SetSheet(sheet.Name, sheet.Id);
+            }
+            catch
+            {
+                _sheetsByName.Remove(sheet.Name);
+                throw;
+            }
+        }
+        catch
+        {
+            _sheetsById.Remove(sheet.Id);
+            throw;
+        }
+        _sheets.Insert(index, sheet);
     }
 
     /// <summary>Reverses <see cref="InsertSheet"/>. The sheet's formulas must already be out of the graph. When the
-    /// active sheet is removed, the sheet now at its index becomes active, or the last sheet (R80).</summary>
+    /// active sheet is removed, the sheet now at its index becomes active, or the last sheet (R80). The last sheet is
+    /// never removed (R78).</summary>
     private void RemoveSheet(Sheet sheet)
     {
         int index = _sheets.IndexOf(sheet);
+        if (index < 0 || _sheets.Count == 1) throw new InvalidOperationException("The sheet cannot be removed.");
         _graph.SetSheet(sheet.Name, null);
         _sheets.RemoveAt(index);
         _sheetsById.Remove(sheet.Id);

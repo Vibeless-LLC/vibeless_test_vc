@@ -17,7 +17,9 @@ namespace Gridline.Core.Dependencies;
 /// precedent lies on the formula's own sheet; a qualified one is resolved through the sheet-name bindings
 /// (<see cref="SetSheet"/>). A formula with a qualified precedent is also recorded under that upper-cased sheet name,
 /// whether or not the sheet exists, so binding or unbinding the name re-resolves its edges and recalculates it. The
-/// <see cref="CellAddress"/> members act on sheet 0, which is the only sheet of a single-sheet workbook.
+/// <see cref="CellAddress"/> members act on internal sheet id 0: the only sheet of a single-sheet graph, and the first
+/// sheet of a new or loaded workbook. The Workbook never uses them; once it deletes that sheet (CR1.3), id 0 is never
+/// reused, so they see no cells of that workbook (D-54).
 /// </para>
 /// Single-threaded, like the Workbook that owns it.
 /// </summary>
@@ -59,13 +61,13 @@ public sealed class DependencyGraph
     public int FormulaCount => _formulas.Count;
 
     /// <summary>True when the cell at <paramref name="address"/> is a formula cell. The address is on the
-    /// first-created sheet (internal sheet id 0, D-52, D-53); cells of other sheets are not visible here.</summary>
+    /// first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54); cells of other sheets are not visible here.</summary>
     public bool IsFormulaCell(CellAddress address) => _formulas.ContainsKey(SheetCellKey.Pack(0, address));
 
     /// <summary>
     /// Replaces the precedent edges of the cell at <paramref name="address"/> (§6.1). A non-null formula (even a
     /// failed parse, which has no precedents) makes it a formula cell; null means it is now a constant or blank.
-    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53). Call this for every edit before <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>.
+    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54). Call this for every edit before <see cref="Recalculate(IReadOnlyCollection{CellAddress}, IRecalcTarget, IFunctionResolver?)"/>.
     /// </summary>
     public void SetFormula(CellAddress address, ParsedFormula? formula) => SetFormula(0, address, formula);
 
@@ -97,13 +99,122 @@ public sealed class DependencyGraph
         foreach (long key in users) AddEdges(key, _formulas[key]);
     }
 
+    /// <summary>
+    /// RenameSheet in the graph (CR1.3, D-54): moves the binding of the sheet <paramref name="sheet"/> from the name
+    /// <paramref name="from"/> to <paramref name="to"/> (any casing; equal case-insensitively for a casing-only rename) and
+    /// replaces the formulas in <paramref name="rewrites"/>, which name <paramref name="from"/>, with their rewritten
+    /// formulas. A rewritten formula whose precedents are exactly its old ones with the sheet renamed keeps its cell and
+    /// range edges: they resolve to the same sheet before and after, so only the sheet-name index moves (O(1) per
+    /// formula, P-8). Every other formula whose edges change (it names <paramref name="to"/> as a missing sheet, or still
+    /// names <paramref name="from"/> afterwards) is re-edged. Applying the inverse (to, from, the old formulas) restores
+    /// the graph.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="from"/> is not bound to <paramref name="sheet"/>, another
+    /// sheet is bound to <paramref name="to"/>, or a rewritten key is not a formula cell. Thrown before any change.</exception>
+    internal void RenameSheetReferences(string from, string to, int sheet, IReadOnlyList<(long Key, ParsedFormula Formula)> rewrites)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+        ArgumentNullException.ThrowIfNull(rewrites);
+        string upperFrom = from.ToUpperInvariant(), upperTo = to.ToUpperInvariant();
+        bool rebinds = !string.Equals(upperFrom, upperTo, StringComparison.Ordinal);
+        if (!_sheetIds.TryGetValue(upperFrom, out int bound) || bound != sheet || (rebinds && _sheetIds.ContainsKey(upperTo)))
+            throw new InvalidOperationException($"Sheet '{from}' is not bound to sheet {sheet}, or '{to}' is taken.");
+
+        // Pure: the new precedents, and which rewrites keep their edges.
+        int n = rewrites.Count;
+        var news = new FormulaPrecedents[n];
+        var keep = new bool[n];
+        var rewritten = new HashSet<long>(n);
+        _sheetNameDependents.TryGetValue(upperTo, out var toUsers);
+        for (int i = 0; i < n; i++)
+        {
+            long key = rewrites[i].Key;
+            if (!_formulas.TryGetValue(key, out var old) || !rewritten.Add(key))
+                throw new InvalidOperationException("A rewritten cell is not a formula cell, or appears twice.");
+            news[i] = PrecedentExtractor.Extract(rewrites[i].Formula);
+            // A formula that also named 'to' (missing until now) gains edges, so it is re-edged.
+            keep[i] = (!rebinds || toUsers is null || !toUsers.Contains(key)) && IsRenamed(old, news[i], upperFrom, upperTo);
+        }
+        var regen = new HashSet<long>();
+        if (rebinds)
+        {
+            if (toUsers is not null) regen.UnionWith(toUsers);
+            if (_sheetNameDependents.TryGetValue(upperFrom, out var fromUsers))
+                foreach (long key in fromUsers)
+                    if (!rewritten.Contains(key)) regen.Add(key); // still names 'from', which goes missing
+        }
+        for (int i = 0; i < n; i++)
+            if (!keep[i]) regen.Add(rewrites[i].Key);
+
+        foreach (long key in regen) RemoveEdges(key, _formulas[key]); // under the old binding
+        if (rebinds)
+        {
+            _sheetIds.Remove(upperFrom);
+            _sheetIds.Add(upperTo, sheet);
+        }
+        for (int i = 0; i < n; i++)
+        {
+            long key = rewrites[i].Key;
+            _formulas[key] = news[i];
+            if (keep[i] && rebinds)
+            {
+                UntrackSheetName(upperFrom, key);
+                TrackSheetName(upperTo, key);
+            }
+        }
+        foreach (long key in regen) AddEdges(key, _formulas[key]); // under the new binding
+    }
+
+    /// <summary>True when <paramref name="renamed"/> is <paramref name="old"/> with the sheet <paramref name="upperFrom"/>
+    /// renamed to <paramref name="upperTo"/>, element by element, and <paramref name="old"/> names <paramref name="upperFrom"/>.</summary>
+    private static bool IsRenamed(FormulaPrecedents old, FormulaPrecedents renamed, string upperFrom, string upperTo)
+    {
+        if (old.CellPrecedents.Count != renamed.CellPrecedents.Count || old.RangePrecedents.Count != renamed.RangePrecedents.Count
+            || old.Names.Count != renamed.Names.Count || old.Resized.Count != renamed.Resized.Count)
+            return false;
+        bool named = false;
+        bool Same(string? a, string? b)
+        {
+            if (string.Equals(a, b, StringComparison.Ordinal) && !string.Equals(a, upperFrom, StringComparison.Ordinal)) return true;
+            if (!string.Equals(a, upperFrom, StringComparison.Ordinal) || !string.Equals(b, upperTo, StringComparison.Ordinal)) return false;
+            named = true;
+            return true;
+        }
+        for (int i = 0; i < old.CellPrecedents.Count; i++)
+            if (old.CellPrecedents[i].Address != renamed.CellPrecedents[i].Address || !Same(old.CellPrecedents[i].Sheet, renamed.CellPrecedents[i].Sheet))
+                return false;
+        for (int i = 0; i < old.RangePrecedents.Count; i++)
+            if (old.RangePrecedents[i].Range != renamed.RangePrecedents[i].Range || !Same(old.RangePrecedents[i].Sheet, renamed.RangePrecedents[i].Sheet))
+                return false;
+        for (int i = 0; i < old.Names.Count; i++)
+            if (!string.Equals(old.Names[i], renamed.Names[i], StringComparison.Ordinal)) return false;
+        for (int i = 0; i < old.Resized.Count; i++)
+        {
+            var (o, r) = (old.Resized[i], renamed.Resized[i]);
+            if (o.Range.Literal != r.Range.Literal || o.Range.Name != r.Range.Name || !Same(o.Range.Sheet, r.Range.Sheet)
+                || o.Anchor.Literal != r.Anchor.Literal || o.Anchor.Name != r.Anchor.Name || !Same(o.Anchor.Sheet, r.Anchor.Sheet))
+                return false;
+        }
+        return named;
+    }
+
+    /// <summary>A snapshot of the formula keys (<see cref="SheetCellKey"/>) whose text names the sheet
+    /// <paramref name="name"/> (any casing) in a qualified reference, whether or not that sheet exists (CR1.3, D-54).
+    /// O(result): RenameSheet and DeleteSheet rewrite exactly these formulas without scanning every cell (P-8).</summary>
+    internal long[] GetSheetNameDependents(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return _sheetNameDependents.TryGetValue(name.ToUpperInvariant(), out var set) ? [.. set] : [];
+    }
+
     /// <summary>The recorded precedents of a formula cell; <see cref="FormulaPrecedents.Empty"/> for any other cell.
-    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53).</summary>
+    /// The address is on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54).</summary>
     public FormulaPrecedents GetPrecedents(CellAddress address) =>
         _formulas.TryGetValue(SheetCellKey.Pack(0, address), out var p) ? p : FormulaPrecedents.Empty;
 
     /// <summary>The distinct formula cells that reference <paramref name="address"/> directly or through a range. The
-    /// address is on the first-created sheet (internal sheet id 0, D-52, D-53); dependents on any sheet are returned
+    /// address is on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54); dependents on any sheet are returned
     /// with their sheet dropped, so addresses from different sheets can coincide.</summary>
     public IReadOnlyCollection<CellAddress> GetDependents(CellAddress address)
     {
@@ -132,7 +243,7 @@ public sealed class DependencyGraph
     /// <paramref name="target"/> (R22), so downstream cells see #CIRC! as an ordinary error.
     /// Edges must already reflect the edit (<see cref="SetFormula(CellAddress, ParsedFormula?)"/>).
     /// </summary>
-    /// <remarks>The <paramref name="changed"/> addresses are on the first-created sheet (internal sheet id 0, D-52, D-53).</remarks>
+    /// <remarks>The <paramref name="changed"/> addresses are on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54).</remarks>
     /// <exception cref="InvalidOperationException">An affected formula cell has no formula in the target; thrown before any value is written.</exception>
     public RecalcResult Recalculate(IReadOnlyCollection<CellAddress> changed, IRecalcTarget target, IFunctionResolver? functions)
     {
@@ -146,7 +257,7 @@ public sealed class DependencyGraph
     /// <paramref name="changedNames"/> also seeding the affected set: each formula that references a changed name
     /// (defined, redefined or deleted, §9.6) and all its transitive dependents. Only those re-evaluate (§6.7). Name
     /// targets must already be updated (<see cref="SetNameTarget(string, CellRange?)"/>). The <paramref name="changed"/>
-    /// addresses are on the first-created sheet (internal sheet id 0, D-52, D-53).
+    /// addresses are on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54).
     /// </summary>
     public RecalcResult Recalculate(IReadOnlyCollection<CellAddress> changed, IReadOnlyCollection<string> changedNames,
         IRecalcTarget target, IFunctionResolver? functions)
@@ -214,7 +325,7 @@ public sealed class DependencyGraph
     /// then depends on each cell of <paramref name="target"/>. Null means the name is undefined or its target was
     /// deleted (#REF!): it has no target cells. Idempotent. The formulas that reference the name are already known from
     /// their text (<see cref="SetFormula(CellAddress, ParsedFormula?)"/>), defined or not, so defining a name later resolves them.
-    /// The target is on the first-created sheet (internal sheet id 0, D-52, D-53).
+    /// The target is on the first-created sheet (internal sheet id 0, D-52, D-53; none once that sheet is deleted, D-54).
     /// </summary>
     public void SetNameTarget(string name, CellRange? target) => SetNameTarget(name, 0, target);
 

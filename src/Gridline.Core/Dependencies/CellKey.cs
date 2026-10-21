@@ -18,8 +18,9 @@ internal static class CellKey
 /// <summary>
 /// A cell key qualified by a workbook's stable internal sheet id (CR1.1, D-52): the sheet id in the high 32 bits and the
 /// <see cref="CellKey"/> in the low 32. Sheet ids are stable across rename and move, so a sheet never re-keys its cells.
-/// Sheet 0 is the sheet of every single-sheet API (the first sheet of a workbook, and the sheet of
-/// <see cref="DependencyGraph"/>'s <see cref="CellAddress"/> members).
+/// Sheet 0 is the sheet of every single-sheet API (the first sheet of a new or loaded workbook, and the sheet of
+/// <see cref="DependencyGraph"/>'s <see cref="CellAddress"/> members). Nothing assumes sheet 0 exists or comes first: a
+/// workbook may delete or move it (CR1.3, D-54), and ids are never reused.
 /// </summary>
 internal static class SheetCellKey
 {

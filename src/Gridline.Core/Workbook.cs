@@ -74,10 +74,18 @@ public sealed partial class Workbook
         }
 
         public readonly int Id;
-        public string Name { get; }
+        public string Name { get; private set; }
 
         /// <summary>The qualified-address prefix: the name quoted only when required (R82), then '!'.</summary>
-        public string Prefix { get; }
+        public string Prefix { get; private set; }
+
+        /// <summary>RenameSheet (CR1.3, D-54): the id and cells stay; only the name and prefix change. The caller keeps
+        /// the workbook's name lookup and the graph's sheet binding in step.</summary>
+        public void SetName(string name)
+        {
+            Name = name;
+            Prefix = SheetName.Format(name) + "!";
+        }
 
         // Not readonly: a structure edit (§9.5) builds the moved cell store aside and swaps it in, so a failure restores
         // the previous object (Workbook.Structure.cs).
